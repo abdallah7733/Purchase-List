@@ -5,76 +5,93 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Purchases List</title>
 <meta name="description" content="Home purchases list: pick items, confirm by date, and see history and totals.">
-<meta name="theme-color" content="#0D1014">
+<meta name="theme-color" content="#F5F5F7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Purchases">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" type="image/png" href="/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
 <link rel="stylesheet" href="/styles.css">
-<style>
-:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-body{margin:0}
-</style>
 </head>
 <body>
-<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
-<main class="wrap">
-  <header>
-    <div>
-      <div class="eyebrow">Home stock · <span id="totalItems">–</span> items · <span id="totalCats">–</span> categories</div>
-      <h1><span>Purchases</span> <span>List</span></h1>
+<header class="gnav" id="gnav">
+  <div class="gnav-in">
+    <a class="brand" href="#top" aria-label="Purchases List, back to top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7h12l-1 13H7L6 7Z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>Purchases</a>
+    <div class="gnav-actions">
+      <button class="gbtn" id="searchBtn" type="button" aria-label="Search items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></button>
+      <button class="gbtn burger" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu"><i></i><i></i></button>
     </div>
-    <div class="meter" aria-live="polite">
-      <b id="filledCount">0<small>/0</small></b>
-      <span class="lbl">items picked today</span>
-      <div class="bar"><i id="bar"></i></div>
-      <span class="save-state" id="saveState"><i></i><span>Connecting</span></span>
-    </div>
-  </header>
+  </div>
+</header>
 
-  <section class="history" id="history" aria-labelledby="histTitle">
-    <div class="hist-top">
-      <div><h2 id="histTitle">History</h2><p id="histMeta">Loading</p></div>
-      <div class="seg" role="tablist" aria-label="History view">
+<nav class="menu" id="menu" aria-label="Menu" aria-hidden="true" inert>
+  <ul class="menu-main">
+    <li><button type="button" data-go="history">History</button></li>
+    <li><button type="button" data-go="totals">Totals</button></li>
+    <li><button type="button" data-go="cats">Categories</button></li>
+  </ul>
+  <p class="menu-label">More</p>
+  <ul class="menu-more">
+    <li><button type="button" data-go="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 20h14"/></svg>Export CSV</button></li>
+    <li><button type="button" data-go="sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4Z"/><path class="wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="soundLbl">Sound: On</span></button></li>
+    <li><button type="button" data-go="reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Admin reset</button></li>
+  </ul>
+</nav>
+
+<main class="wrap" id="top">
+  <section class="hero">
+    <h1>Purchases List</h1>
+    <p class="hero-sub">Pick today's items.</p>
+    <p class="hero-meta"><span id="filledCount">0 of 0</span> picked · <span id="todayLbl"></span><br><span id="totalItems">–</span> items in <span id="totalCats">–</span> categories</p>
+    <div class="hero-btns">
+      <button class="pill primary" id="startBtn" type="button">Start picking</button>
+      <button class="pill outline" id="histBtn" type="button">View history</button>
+    </div>
+    <span class="save-state" id="saveState" aria-live="polite"><i></i><span>Connecting</span></span>
+  </section>
+
+  <section class="block" id="history" aria-labelledby="histTitle">
+    <div class="block-head">
+      <h2 class="headline" id="histTitle">History. <span id="histMeta">Loading.</span></h2>
+      <div class="seg" role="tablist" aria-label="History view" data-sel="dates">
         <button type="button" role="tab" data-tab="dates" aria-selected="true">By date</button>
         <button type="button" role="tab" data-tab="totals" aria-selected="false">Totals</button>
       </div>
     </div>
     <div class="hist-body" id="histBody"></div>
-    <div class="hist-foot"><button class="linkbtn" id="resetBtn" type="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Admin reset</button></div>
+    <button class="linkbtn reset-link" id="resetBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Admin reset</button>
   </section>
 
-  <div class="tools">
-    <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input id="search" type="search" placeholder="Find an item" aria-label="Find an item" autocomplete="off"></label>
-    <button class="btn" id="toggleAll" type="button" aria-label="Open all categories"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg><span class="blbl">Open all</span></button>
-    <button class="btn" id="exportBtn" type="button" aria-label="Export CSV"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg><span class="blbl">Export CSV</span></button>
-  </div>
-
-  <div class="cats" id="cats">
-    <div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div>
-  </div>
+  <section class="block" id="catsBlock" aria-labelledby="catsTitle">
+    <h2 class="headline" id="catsTitle">Categories. <span>Tap to open.</span></h2>
+    <div class="tools">
+      <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+        <input id="search" type="search" placeholder="Search items" aria-label="Search items" autocomplete="off" enterkeyhint="search"></label>
+      <button class="pill outline small" id="toggleAll" type="button" aria-label="Open all categories">Open all</button>
+    </div>
+    <div class="cats" id="cats">
+      <div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div>
+    </div>
+  </section>
 </main>
+
 <div class="confirm-bar" id="confirmBar">
   <div class="cb-text"><b id="confirmCount">0 items picked</b><span id="confirmHint"></span></div>
-  <button class="btn primary" id="confirmBtn" type="button" disabled><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"><path d="m5 12 5 5 9-10"/></svg><span>Confirm</span></button>
+  <button class="pill primary" id="confirmBtn" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg><span>Confirm</span></button>
 </div>
+<div class="toast" id="toast" role="status"></div>
+
 <dialog class="dlg" id="resetDlg" aria-labelledby="resetTitle">
   <form id="resetForm" method="dialog">
     <h2 id="resetTitle">Reset all history?</h2>
     <p>This deletes every saved date, so the totals go back to zero. You can't undo it.</p>
     <label class="fld"><span>Admin passcode</span><input id="passcode" type="password" inputmode="numeric" autocomplete="off" enterkeyhint="done"></label>
     <p class="err" id="resetErr" role="alert"></p>
-    <div class="dlg-btns"><button class="btn" id="resetCancel" type="button">Cancel</button><button class="btn danger" id="resetGo" type="submit">Reset</button></div>
+    <div class="dlg-btns"><button class="pill outline" id="resetCancel" type="button">Cancel</button><button class="pill danger" id="resetGo" type="submit">Reset</button></div>
   </form>
 </dialog>
-<div class="toast" id="toast" role="status"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js"></script>
 <script src="/config.js"></script>
