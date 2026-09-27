@@ -43,7 +43,9 @@ test("pick a quantity and confirm today's list", async ({ page }) => {
   await expect(page.locator("#confirmBar")).not.toHaveClass(/\bshow\b/);
 
   // Open Dairy, open Milk, type 2 (litres by default).
-  await page.getByRole("button", { name: /Dairy/ }).click();
+  const dairy = page.getByRole("button", { name: /Dairy/ });
+  await dairy.click();
+  await expect(dairy).toHaveAttribute("aria-expanded", "true");
   const milk = page.locator('.item[data-id="milk"]');
   await milk.locator(".item-row").click();
   await milk.getByRole("button", { name: "Type amount" }).click();

@@ -11,6 +11,8 @@ module.exports = defineConfig({
     browserName: process.env.PW_BROWSER || "webkit",
     baseURL: "http://localhost:4173",
     serviceWorkers: "block",
+    // Use the app's reduced-motion styles so expand animations don't race the clicks (headless WebKit stalls on them).
+    reducedMotion: "reduce",
     trace: "retain-on-failure"
   },
   webServer: { command: "node tests/serve.js", url: "http://localhost:4173", reuseExistingServer: !process.env.CI }
