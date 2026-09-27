@@ -231,3 +231,12 @@ body.has-bar .toast{bottom:calc(92px + env(safe-area-inset-bottom,0px))}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;transition-delay:0ms!important}
   html{scroll-behavior:auto}
 }
+
+/* zero stock + typed amount */
+.badge.zero{background:rgba(227,0,0,.08);color:var(--red)}
+.type-row{display:flex;align-items:center;gap:10px;margin:12px 16px 0}
+.type-row input{flex:1;min-width:0;height:44px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:0 14px;font:inherit;font-size:17px;letter-spacing:-.022em;color:var(--text);font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+.type-row input::-webkit-outer-spin-button,.type-row input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.type-row input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 4px rgba(0,125,250,.25)}
+.type-unit{font-size:17px;color:var(--text-2);min-width:44px}
+.picker-foot .type{font-size:15px;color:var(--link)}

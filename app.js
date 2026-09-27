@@ -71,7 +71,7 @@ function dayLabel(k){
   return k === dayKey() ? `Today · ${longDate(k)}` : k === dayKey(y) ? `Yesterday · ${longDate(k)}` : longDate(k);
 }
 const todaySession = () => sessions.find(s => s.day === dayKey());
-const picks = () => ITEMS.filter(i => stock[i.id] && stock[i.id].qty > 0).map(i => ({ item_id: i.id, qty: stock[i.id].qty, unit: stock[i.id].unit }));
+const picks = () => ITEMS.filter(i => stock[i.id]).map(i => ({ item_id: i.id, qty: stock[i.id].qty, unit: stock[i.id].unit }));
 const sig = list => JSON.stringify((list || []).map(r => [r.item_id, Number(r.qty), r.unit]).sort((a, b) => a[0] < b[0] ? -1 : 1));
 const isDirty = () => sig(picks()) !== sig(todaySession() ? todaySession().items : []);
 function loadToday(){ stock = {}; const t = todaySession(); if (t) t.items.forEach(r => { stock[r.item_id] = { qty: Number(r.qty), unit: r.unit }; }); }
@@ -108,7 +108,7 @@ function render(changed){
   CATS.forEach(c => {
     const sec = catsEl.querySelector(`.cat[data-cid="${c.id}"]`); if (!sec) return;
     const its = ITEMS.filter(i => i.cat === c.id);
-    const f = its.filter(i => stock[i.id] && stock[i.id].qty > 0).length; filledTotal += f;
+    const f = its.filter(i => stock[i.id]).length; filledTotal += f;
     const open = openCats.has(c.id);
     sec.classList.toggle("open", open); sec.classList.toggle("has", f > 0);
     sec.querySelector(".cat-head").setAttribute("aria-expanded", open);
@@ -118,11 +118,11 @@ function render(changed){
   ITEMS.forEach(it => {
     const li = catsEl.querySelector(`.item[data-id="${it.id}"]`); if (!li) return;
     const s = stock[it.id]; const qty = s ? s.qty : 0, unit = (s && s.unit) || it.unit;
-    li.classList.toggle("filled", qty > 0); li.classList.toggle("sel", selected === it.id);
+    li.classList.toggle("filled", !!s); li.classList.toggle("sel", selected === it.id);
     li.querySelector(".item-row").setAttribute("aria-expanded", selected === it.id);
-    const b = li.querySelector(".badge"); const txt = qty > 0 ? `${fmt(qty)} ${unit}` : "—";
+    const b = li.querySelector(".badge"); const txt = s ? `${fmt(qty)} ${unit}` : "—";
     if (b.textContent !== txt){ b.textContent = txt; if (changed && changed.has(it.id)){ b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop"); } }
-    b.classList.toggle("has", qty > 0);
+    b.classList.toggle("has", !!s && qty > 0); b.classList.toggle("zero", !!s && qty === 0);
   });
   $("#filledCount").textContent = `${filledTotal} of ${ITEMS.length}`;
   $("#todayLbl").textContent = longDate(dayKey());
@@ -143,10 +143,15 @@ function renderConfirm(n){
 /* ---------- iOS-style wheel picker (quantity + unit) ---------- */
 const ROW = 36;
 const unitClass = u => HALF.has(u) ? "half" : FIFTY.has(u) ? "fifty" : "one";
-function qtyValues(u){ const a = [], c = unitClass(u);
-  for (let i = 0; i <= (c === "half" ? 200 : 100); i++) a.push(c === "half" ? i / 2 : c === "fifty" ? i * 50 : i); return a; }
-const nearest = (arr, v) => arr.reduce((b, x, i) => Math.abs(x - v) < Math.abs(arr[b] - v) ? i : b, 0);
-let picker = null;   // { id, li, qty: wheel, unit: wheel }
+// Index 0 is null ("—", not entered). A typed value that isn't a wheel step is inserted in order.
+function qtyValues(u, extra){ const a = [null], c = unitClass(u);
+  for (let i = 0; i <= (c === "half" ? 200 : 100); i++) a.push(c === "half" ? i / 2 : c === "fifty" ? i * 50 : i);
+  if (extra != null && !a.includes(extra)){ a.push(extra); a.sort((x, y) => x === null ? -1 : y === null ? 1 : x - y); }
+  return a; }
+const qtyLabels = vals => vals.map(v => v === null ? "—" : fmt(v));
+const qtyIndex = (vals, s) => s ? Math.max(1, vals.indexOf(s.qty)) : 0;
+const unitSel = () => picker.unit.values[picker.unit.idx];
+let picker = null;   // { id, li, cls, qty: wheel, unit: wheel }
 
 function fillWheel(w, values, labels, idx){
   w.values = values; w.idx = idx; w.painted = [];
@@ -170,30 +175,34 @@ function onWheel(w){
     const idx = Math.max(0, Math.min(w.values.length - 1, Math.round(w.el.scrollTop / ROW)));
     if (idx === w.idx) return;
     w.idx = idx; fb.tick();
-    if (w === picker.qty) setItem(picker.id, w.values[idx], picker.unit.values[picker.unit.idx]);
+    if (w === picker.qty){ const v = w.values[idx]; v === null ? unsetItem(picker.id) : setItem(picker.id, v, unitSel()); syncTyped(); }
     else changeUnit(w.values[idx]);
   });
 }
 function changeUnit(u){
-  const id = picker.id, cur = stock[id] || { qty: 0, unit: byId[id].unit };
-  let q = cur.qty;
-  if (unitClass(u) !== unitClass(cur.unit)){
-    const vals = qtyValues(u); let i = vals.indexOf(q); if (i < 0) i = q > 0 ? 1 : 0;
-    q = vals[i]; fillWheel(picker.qty, vals, vals.map(fmt), i);
+  const id = picker.id, cur = stock[id];
+  let q = cur ? cur.qty : null;
+  if (unitClass(u) !== picker.cls){
+    picker.cls = unitClass(u);
+    const vals = qtyValues(u); let i = q === null ? 0 : vals.indexOf(q); if (i < 0) i = q > 0 ? 2 : 1;
+    q = vals[i]; fillWheel(picker.qty, vals, qtyLabels(vals), i); syncTyped();
   }
-  setItem(id, q, u);
+  if (q !== null) setItem(id, q, u);
+  const tu = picker.li.querySelector(".type-unit"); if (tu) tu.textContent = u;
 }
+function syncTyped(force){ const inp = picker && picker.li.querySelector(".type-in"); if (inp && (force || document.activeElement !== inp)){ const s = stock[picker.id]; inp.value = s ? fmt(s.qty) : ""; } }
 function mountPicker(li){
-  const id = li.dataset.id, s = stock[id] || { qty: 0, unit: byId[id].unit };
+  const id = li.dataset.id, s = stock[id], unit = s ? s.unit : byId[id].unit;
   if (picker && picker.li !== li){ const old = picker.li.querySelector(".picker-slot"); setTimeout(() => { if (!picker || picker.li !== old.closest(".item")) old.innerHTML = ""; }, 500); }
   const slot = li.querySelector(".picker-slot");
   slot.innerHTML = `<div class="picker"><div class="band"></div><div class="wheel" role="listbox" aria-label="Quantity"></div><div class="wheel" role="listbox" aria-label="Unit"></div></div>
-    <div class="picker-foot"><button class="linkbtn clear" type="button">Clear</button><button class="linkbtn done" type="button">Done</button></div>`;
+    <div class="type-row" hidden><input class="type-in" type="number" inputmode="decimal" min="0" max="100000" step="any" placeholder="Amount" aria-label="Type amount for ${esc(byId[id].name)}"><span class="type-unit">${esc(unit)}</span></div>
+    <div class="picker-foot"><button class="linkbtn clear" type="button">Clear</button><button class="linkbtn type" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>Type amount</button><button class="linkbtn done" type="button">Done</button></div>`;
   const [qEl, uEl] = slot.querySelectorAll(".wheel");
-  picker = { id, li, qty: { el: qEl }, unit: { el: uEl } };
-  const vals = qtyValues(s.unit);
-  fillWheel(picker.unit, UNITS, UNITS, Math.max(0, UNITS.indexOf(s.unit)));
-  fillWheel(picker.qty, vals, vals.map(fmt), nearest(vals, s.qty));
+  picker = { id, li, cls: unitClass(unit), qty: { el: qEl }, unit: { el: uEl } };
+  const vals = qtyValues(unit, s ? s.qty : null);
+  fillWheel(picker.unit, UNITS, UNITS, Math.max(0, UNITS.indexOf(unit)));
+  fillWheel(picker.qty, vals, qtyLabels(vals), qtyIndex(vals, s));
   [picker.qty, picker.unit].forEach(w => {
     w.el.addEventListener("scroll", () => onWheel(w), { passive: true });
     w.el.addEventListener("click", e => { const o = e.target.closest(".opt"); if (o) w.el.scrollTo({ top: +o.dataset.i * ROW, behavior: "smooth" }); });
@@ -253,6 +262,7 @@ function setItem(id, qty, unit){
   stock[id] = { qty, unit };
   render(new Set([id]));
 }
+function unsetItem(id){ delete stock[id]; render(new Set([id])); }
 
 /* ---------- confirm: save today's list (replaces today's row) ---------- */
 $("#confirmBtn").onclick = async () => {
@@ -325,11 +335,26 @@ catsEl.addEventListener("click", e => {
   const li = e.target.closest(".item"); if (!li) return; const id = li.dataset.id;
   if (e.target.closest(".item-row")){ fb.tap(); selectItem(id); return; }
   if (e.target.closest(".clear") && picker){
-    fb.tap(); setItem(id, 0, byId[id].unit);
-    const vals = qtyValues(byId[id].unit);
-    fillWheel(picker.unit, UNITS, UNITS, Math.max(0, UNITS.indexOf(byId[id].unit))); fillWheel(picker.qty, vals, vals.map(fmt), 0); return; }
+    fb.tap(); unsetItem(id); const u = byId[id].unit, vals = qtyValues(u); picker.cls = unitClass(u);
+    fillWheel(picker.unit, UNITS, UNITS, Math.max(0, UNITS.indexOf(u))); fillWheel(picker.qty, vals, qtyLabels(vals), 0);
+    li.querySelector(".type-unit").textContent = u; syncTyped(true); return; }
+  if (e.target.closest(".type") && picker){
+    fb.tap(); const row = li.querySelector(".type-row"), inp = row.querySelector(".type-in");
+    row.hidden = !row.hidden; if (!row.hidden){ syncTyped(); inp.focus(); inp.select(); } return; }
   if (e.target.closest(".done")){ fb.tap(); selectItem(id); return; }
 });
+// Typed amount: updates live; on commit the value is added to the wheel so the wheel shows it.
+catsEl.addEventListener("input", e => {
+  if (!e.target.classList.contains("type-in") || !picker) return;
+  const v = e.target.value.trim(); if (v === "" || isNaN(+v)) return;
+  setItem(picker.id, +v, unitSel());
+});
+catsEl.addEventListener("change", e => {
+  if (!e.target.classList.contains("type-in") || !picker) return;
+  const s = stock[picker.id]; if (!s) return;
+  const vals = qtyValues(unitSel(), s.qty); fillWheel(picker.qty, vals, qtyLabels(vals), qtyIndex(vals, s)); fb.tap();
+});
+catsEl.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList.contains("type-in")) e.target.blur(); });
 $("#toggleAll").onclick = () => {
   const all = openCats.size === CATS.length; openCats.clear(); if (!all) CATS.forEach(c => openCats.add(c.id));
   $("#toggleAll").textContent = all ? "Open all" : "Close all";
