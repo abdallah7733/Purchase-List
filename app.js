@@ -270,7 +270,7 @@ $("#confirmBtn").onclick = async () => {
   fb.tap();
   const day = dayKey(), items = picks();
   saving = true; render(); setSave("saving", "Saving");
-  const { error } = await sb.from("purchases_sessions").upsert({ day, items });
+  const { error } = await sb.from("purchases_sessions").upsert({ day, items, saved_by: DEVICE });
   saving = false;
   if (error){ setSave("", "Not saved"); render(); fb.error(); toast("Couldn't save. Check your connection and try again."); return; }
   const i = sessions.findIndex(s => s.day === day);
@@ -299,6 +299,66 @@ $("#resetForm").addEventListener("submit", async e => {
   fb.success(); toast("History reset.");
 });
 
+/* ---------- "Recently saved" pop-up, once per app open ---------- */
+let recentShown = false;
+function showRecent(){
+  if (recentShown) return; recentShown = true;
+  const last = sessions.find(s => s.items.length); if (!last) return;
+  const rows = last.items.filter(r => byId[r.item_id]).sort((a, b) => byId[a.item_id].no - byId[b.item_id].no), shown = rows.slice(0, 6);
+  $("#recentMeta").textContent = `${dayLabel(last.day)} · ${rows.length} ${rows.length === 1 ? "item" : "items"}`;
+  $("#recentList").innerHTML = shown.map(r => itemRow(r.item_id, `<span${Number(r.qty) === 0 ? ' class="qty-zero"' : ""}>${fmt(Number(r.qty))} ${esc(r.unit)}</span>`)).join("")
+    + (rows.length > shown.length ? `<tr class="more"><td colspan="2">+ ${rows.length - shown.length} more</td></tr>` : "");
+  $("#recentDlg").dataset.day = last.day;
+  if (!$("#resetDlg").open) $("#recentDlg").showModal();
+}
+$("#recentOk").onclick = () => { fb.tap(); $("#recentDlg").close(); };
+$("#recentHist").onclick = () => { fb.tap(); const d = $("#recentDlg"); d.close(); openDays.clear(); openDays.add(d.dataset.day); histTab = "dates"; renderHistory(); go("history"); };
+$("#recentDlg").addEventListener("click", e => {   // tap outside the sheet closes it
+  const d = e.currentTarget, r = d.getBoundingClientRect();
+  if (e.target === d && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) d.close();
+});
+
+/* ---------- push notifications + app-icon badge ---------- */
+const DEVICE = (() => { try { let d = localStorage.getItem("purchases-device");
+  if (!d){ d = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("purchases-device", d); } return d; } catch(e){ return null; } })();
+const pushOk = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const keyBytes = k => { const b = atob((k + "=".repeat((4 - k.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+let swReg = null, pushOn = false;
+function notifyLabel(){ $("#notifyLbl").textContent = `Notifications: ${pushOn ? "On" : "Off"}`; }
+async function saveSub(sub){ const j = sub.toJSON();
+  return sb.rpc("purchases_push_subscribe", { sub_endpoint: j.endpoint, sub_p256dh: j.keys.p256dh, sub_auth: j.keys.auth, sub_device: DEVICE }); }
+function clearBadge(){
+  if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  if (window.caches) caches.open("purchases-meta").then(c => c.delete("/__badge-count")).catch(() => {});
+}
+if ("serviceWorker" in navigator){
+  navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready).then(async r => {
+    swReg = r;
+    const sub = pushOk() && Notification.permission === "granted" ? await r.pushManager.getSubscription() : null;
+    pushOn = !!sub; notifyLabel();
+    if (sub && sb) saveSub(sub);   // keep the server copy fresh (endpoints can rotate)
+  }).catch(() => {});
+}
+clearBadge();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") clearBadge(); });
+async function toggleNotify(){
+  if (!pushOk() || !sb){ toast(isIOS && !standalone ? "First add the app to your Home Screen: Share → Add to Home Screen, then open it from the icon." : "This browser can't show notifications."); return; }
+  if (!swReg){ toast("Still starting up. Try again in a second."); return; }
+  if (pushOn){
+    const sub = await swReg.pushManager.getSubscription();
+    if (sub){ await sb.rpc("purchases_push_unsubscribe", { sub_endpoint: sub.endpoint }); await sub.unsubscribe().catch(() => {}); }
+    pushOn = false; notifyLabel(); toast("Notifications off on this device."); return;
+  }
+  let sub;
+  try { sub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(cfg.vapidPublicKey) }); }   // shows the permission prompt
+  catch(e){ fb.error(); toast(Notification.permission === "denied" ? "Notifications are blocked. Allow them in Settings → Notifications → Purchases." : "Couldn't turn on notifications. Try again."); return; }
+  const { error } = await saveSub(sub);
+  if (error){ fb.error(); toast("Couldn't turn on notifications. Check your connection."); return; }
+  pushOn = true; notifyLabel(); fb.success(); toast("Notifications on. You'll be told when another device saves a list.");
+}
+
 /* ---------- menu (drops from the nav bar) ---------- */
 const menu = $("#menu");
 menu.querySelectorAll("li").forEach((li, k) => li.style.setProperty("--k", k));
@@ -316,6 +376,7 @@ const go = id => document.getElementById(id).scrollIntoView({ behavior: matchMed
 menu.addEventListener("click", e => {
   const b = e.target.closest("[data-go]"); if (!b) return; const g = b.dataset.go;
   if (g === "sound"){ fb.sound = !fb.sound; soundLabel(); fb.tap(); return; }
+  if (g === "notify"){ fb.tap(); toggleNotify(); return; }   // stays in the tap so iOS allows the permission prompt
   fb.tap(); setMenu(false);
   setTimeout(() => {
     if (g === "history" || g === "totals"){ setTab(g === "totals" ? "totals" : "dates"); go("history"); }
@@ -413,7 +474,7 @@ async function load(){
   apply(cr.data, ir.data); sessions = hr.data;
   if (!built || prevKey !== JSON.stringify(ITEMS.map(i => [i.id, i.name, i.cat]))){ build(); selected = null; }
   if (!wasDirty) loadToday();
-  render(); renderHistory(); cache(); setSave("saved", "Synced");
+  render(); renderHistory(); cache(); setSave("saved", "Synced"); showRecent();
   sb.channel("purchases-sessions").on("postgres_changes", { event: "*", schema: "public", table: "purchases_sessions" }, () => { if (!saving) refreshSessions(); }).subscribe();
 }
 load();

@@ -35,6 +35,7 @@
   <p class="menu-label">More</p>
   <ul class="menu-more">
     <li><button type="button" data-go="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 20h14"/></svg>Export CSV</button></li>
+    <li><button type="button" data-go="notify"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span id="notifyLbl">Notifications: Off</span></button></li>
     <li><button type="button" data-go="sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4Z"/><path class="wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="soundLbl">Sound: On</span></button></li>
     <li><button type="button" data-go="reset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Full Reset</button></li>
   </ul>
@@ -82,6 +83,14 @@
   <button class="pill primary" id="confirmBtn" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg><span>Confirm</span></button>
 </div>
 <div class="toast" id="toast" role="status"></div>
+
+<dialog class="dlg sheet" id="recentDlg" aria-labelledby="recentTitle">
+  <p class="eyebrow">Last session</p>
+  <h2 id="recentTitle">Recently saved items</h2>
+  <p class="recent-meta" id="recentMeta"></p>
+  <table class="htable recent-list"><tbody id="recentList"></tbody></table>
+  <div class="dlg-btns"><button class="pill outline" id="recentHist" type="button">View history</button><button class="pill primary" id="recentOk" type="button" autofocus>Got it</button></div>
+</dialog>
 
 <dialog class="dlg" id="resetDlg" aria-labelledby="resetTitle">
   <form id="resetForm" method="dialog">

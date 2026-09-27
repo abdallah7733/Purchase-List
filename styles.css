@@ -240,3 +240,18 @@ body.has-bar .toast{bottom:calc(92px + env(safe-area-inset-bottom,0px))}
 .type-row input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 4px rgba(0,125,250,.25)}
 .type-unit{font-size:17px;color:var(--text-2);min-width:44px}
 .picker-foot .type{font-size:15px;color:var(--link)}
+
+/* "Recently saved" pop-up: bottom sheet on phones, centred card on wider screens */
+.dlg.sheet{padding:22px 22px 18px}
+.dlg .eyebrow{margin:0 0 4px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--blue)}
+.recent-meta{margin:0 0 12px!important;font-size:15px!important}
+.recent-list{margin:0 0 18px;border:1px solid var(--line);border-radius:14px;border-collapse:separate;border-spacing:0;overflow:hidden}
+.recent-list td{padding:10px 14px;border-top:1px solid var(--hair)}
+.recent-list tr:first-child td{border-top:0}
+.recent-list .more td{color:var(--text-2);font-size:14px}
+.qty-zero{color:var(--red)!important}
+@media (max-width:733px){
+  .dlg.sheet{margin:auto auto calc(10px + env(safe-area-inset-bottom,0px));width:calc(100% - 20px);max-height:calc(100% - 40px);border-radius:24px}
+  .dlg.sheet[open]{animation:sheetin .5s var(--ease) both}
+}
+@keyframes sheetin{from{transform:translateY(110%)}to{transform:none}}
