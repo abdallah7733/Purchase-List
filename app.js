@@ -129,15 +129,18 @@ function render(changed){
   renderConfirm(filledTotal);
 }
 
+let justSaved = false, justSavedT;
 function renderConfirm(n){
   const bar = $("#confirmBar"), btn = $("#confirmBtn"), t = todaySession(), dirty = isDirty();
   $("#confirmCount").textContent = n === 1 ? "1 item picked" : `${n} items picked`;
-  $("#confirmHint").textContent = !dirty && t ? "Saved for today" : t ? "Confirm to replace today's list" : `For today · ${longDate(dayKey())}`;
+  $("#confirmHint").textContent = !dirty && t ? (n ? "Saved for today" : "Today's list cleared") : t ? "Confirm to replace today's list" : `For today · ${longDate(dayKey())}`;
   btn.disabled = saving || !dirty || (!t && n === 0);
   btn.querySelector("span").textContent = saving ? "Saving…" : !dirty && t ? "Saved" : "Confirm";
   bar.classList.toggle("done", !dirty && !!t);
-  bar.classList.toggle("show", n > 0 || !!t);
-  document.body.classList.toggle("has-bar", n > 0 || !!t);
+  // Only visible while there's something to confirm, and briefly after saving.
+  const show = saving || dirty || justSaved;
+  bar.classList.toggle("show", show);
+  document.body.classList.toggle("has-bar", show);
 }
 
 /* ---------- iOS-style wheel picker (quantity + unit) ---------- */
@@ -276,8 +279,8 @@ $("#confirmBtn").onclick = async () => {
   const i = sessions.findIndex(s => s.day === day);
   if (i >= 0) sessions[i].items = items; else sessions.unshift({ day, items });
   openDays.clear(); openDays.add(day); histTab = "dates";
+  justSaved = true; clearTimeout(justSavedT); justSavedT = setTimeout(() => { justSaved = false; render(); }, 2000);
   cache(); setSave("saved", "Saved"); render(); renderHistory(); fb.success();
-  toast(items.length ? `Saved ${items.length} ${items.length === 1 ? "item" : "items"} for today.` : "Today's list cleared.");
 };
 
 /* ---------- admin reset (passcode checked in the database) ---------- */
