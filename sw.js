@@ -15,7 +15,7 @@ self.addEventListener("push", e => {
     const n = (await getCount()) + 1; await setCount(n);
     if (self.navigator.setAppBadge) try { await self.navigator.setAppBadge(n); } catch (_) {}
     await self.registration.showNotification(d.title || "Purchases List updated", {
-      body: d.body || "", icon: "/icon-192.png", badge: "/icon-192.png",
+      body: d.body || "", icon: "/icon-192.png?v=basket", badge: "/favicon-64.png?v=basket",
       tag: "purchases-" + (d.day || "update"), renotify: true, data: { url: "/" }
     });
   })());
