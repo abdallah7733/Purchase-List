@@ -12,7 +12,8 @@ Deno.serve(async (req) => {
   if (!cfg || req.headers.get("x-hook-secret") !== cfg.hook_secret) return new Response("forbidden", { status: 403 });
 
   const { day } = await req.json().catch(() => ({}));
-  const [s] = await sql`select day::text as day, items, saved_by from public.purchases_sessions where day = ${day}`;
+  const [s] = await sql`select s.day::text as day, s.items, s.saved_by, p.name as who
+    from public.purchases_sessions s left join public.purchases_profiles p on p.id = s.saved_by_profile where s.day = ${day}`;
   if (!s) return new Response("no session", { status: 200 });
 
   const items = (s.items as { item_id: string; qty: number; unit: string }[]) || [];
@@ -24,7 +25,7 @@ Deno.serve(async (req) => {
   const body = items.length
     ? `${date} · ${items.length} ${items.length === 1 ? "item" : "items"}: ${list}${items.length > 3 ? ` +${items.length - 3} more` : ""}`
     : `${date} · list cleared`;
-  const payload = JSON.stringify({ title: "Purchases List updated", body, day: s.day });
+  const payload = JSON.stringify({ title: s.who ? `${s.who} saved the list` : "Purchases List updated", body, day: s.day });
 
   webpush.setVapidDetails(cfg.subject, cfg.vapid_public, cfg.vapid_private);
   const subs = await sql`select endpoint, p256dh, auth from purchases_private.push_subs where device_id is distinct from ${s.saved_by}`;

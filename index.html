@@ -24,6 +24,7 @@
     <a class="brand" href="#top" aria-label="Purchases List, back to top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 10a4.5 4.5 0 0 1 9 0"/><rect x="3" y="10" width="18" height="3" rx="1.5"/><path d="m5 13 1.6 7h10.8L19 13"/><path d="M10 15.5v2.5M14 15.5v2.5"/></svg>Purchases</a>
     <div class="gnav-actions">
       <button class="gbtn" id="searchBtn" type="button" aria-label="Search items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></button>
+      <button class="me" id="meBtn" type="button" aria-label="Create your profile"><span class="av-slot" id="meAv"></span><span class="nm" id="meName">Profile</span></button>
       <button class="gbtn burger" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu"><i></i><i></i></button>
     </div>
   </div>
@@ -33,10 +34,13 @@
   <ul class="menu-main">
     <li><button type="button" data-go="history">History</button></li>
     <li><button type="button" data-go="totals">Totals</button></li>
+    <li><button type="button" data-go="activity">Activity</button></li>
     <li><button type="button" data-go="cats">Categories</button></li>
+    <li><button type="button" data-go="add">Add item</button></li>
   </ul>
   <p class="menu-label">More</p>
   <ul class="menu-more">
+    <li><button type="button" data-go="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg><span id="profileLbl">Your profile</span></button></li>
     <li><button type="button" data-go="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 20h14"/></svg>Export CSV</button></li>
     <li><button type="button" data-go="notify"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span id="notifyLbl">Notifications: Off</span></button></li>
     <li><button type="button" data-go="sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4Z"/><path class="wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="soundLbl">Sound: On</span></button></li>
@@ -62,6 +66,7 @@
       <div class="seg" role="tablist" aria-label="History view" data-sel="dates">
         <button type="button" role="tab" data-tab="dates" aria-selected="true">By date</button>
         <button type="button" role="tab" data-tab="totals" aria-selected="false">Totals</button>
+        <button type="button" role="tab" data-tab="activity" aria-selected="false">Activity</button>
       </div>
     </div>
     <div class="hist-body" id="histBody"></div>
@@ -91,6 +96,7 @@
   <p class="eyebrow">Last session</p>
   <h2 id="recentTitle">Recently saved items</h2>
   <p class="recent-meta" id="recentMeta"></p>
+  <p class="by" id="recentBy" hidden></p>
   <table class="htable recent-list"><tbody id="recentList"></tbody></table>
   <div class="dlg-btns"><button class="pill outline" id="recentHist" type="button">View history</button><button class="pill primary" id="recentOk" type="button" autofocus>Got it</button></div>
 </dialog>
@@ -102,6 +108,34 @@
     <label class="fld"><span>Admin passcode</span><input id="passcode" type="password" inputmode="numeric" autocomplete="off" enterkeyhint="done"></label>
     <p class="err" id="resetErr" role="alert"></p>
     <div class="dlg-btns"><button class="pill outline" id="resetCancel" type="button">Cancel</button><button class="pill danger" id="resetGo" type="submit">Reset</button></div>
+  </form>
+</dialog>
+
+<dialog class="dlg sheet" id="profileDlg" aria-labelledby="pfTitle">
+  <form id="profileForm" novalidate>
+    <p class="eyebrow">Your profile</p>
+    <h2 id="pfTitle">Who's picking?</h2>
+    <p id="pfNote">Your name and picture show next to everything you save or add.</p>
+    <div class="pf-top"><span class="av-slot" id="pfPreview"></span>
+      <label class="fld text"><span>Name</span><input id="pfName" type="text" maxlength="24" autocomplete="nickname" autocapitalize="words" enterkeyhint="done" placeholder="e.g. Abdallah"></label></div>
+    <p class="fld-label">Choose a picture</p>
+    <div class="av-grid" id="avGrid" role="radiogroup" aria-label="Choose a picture"></div>
+    <label class="linkbtn upload"><input id="pfFile" type="file" accept="image/*" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="14" rx="2.5"/><circle cx="12" cy="12.5" r="3.5"/><path d="M8.5 5.5 10 3.5h4l1.5 2"/></svg><span id="pfFileLbl">Upload your own photo</span></label>
+    <p class="err" id="pfErr" role="alert"></p>
+    <div class="dlg-btns"><button class="pill outline" id="pfCancel" type="button">Not now</button><button class="pill primary" id="pfSave" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<dialog class="dlg sheet" id="addDlg" aria-labelledby="addTitle">
+  <form id="addForm" novalidate>
+    <p class="eyebrow">New item</p>
+    <h2 id="addTitle">Add an item</h2>
+    <label class="fld text"><span>Item name</span><input id="addName" type="text" maxlength="40" autocomplete="off" autocapitalize="sentences" enterkeyhint="done" placeholder="e.g. Cheddar cheese"></label>
+    <p class="add-hint" id="addHint">Type a name and the app picks a category.</p>
+    <label class="fld text"><span>Category <em class="tag" id="addAuto" hidden>Auto</em></span><select id="addCat"></select></label>
+    <label class="fld text"><span>Unit</span><select id="addUnit"></select></label>
+    <p class="err" id="addErr" role="alert"></p>
+    <div class="dlg-btns"><button class="pill outline" id="addCancel" type="button">Cancel</button><button class="pill primary" id="addGo" type="submit">Add item</button></div>
   </form>
 </dialog>
 

@@ -15,6 +15,79 @@ const openCats = new Set(), openDays = new Set();
 let selected = null, built = false, histTab = "dates", saving = false;
 const catsEl = $("#cats");
 
+/* ---------- profiles: a name + avatar per device (no password; the device keeps a key so only it can edit) ---------- */
+let PROFILES = {}, activity = [], loaded = false;
+const ME_KEY = "purchases-me";
+const me = (() => { try { const m = JSON.parse(localStorage.getItem(ME_KEY) || "null"); if (m && m.id && m.key) return m; } catch(e){}
+  const hex = n => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => b.toString(16).padStart(2, "0")).join(""), h = hex(16);
+  const m = { id: crypto.randomUUID ? crypto.randomUUID() : `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20)}`, key: hex(24) };
+  try { localStorage.setItem(ME_KEY, JSON.stringify(m)); } catch(e){} return m; })();
+const myProfile = () => PROFILES[me.id] || null;
+const whoName = id => (PROFILES[id] && PROFILES[id].name) || "Someone";
+const AVATARS = { fox:["🦊","#FFE3CC"], cat:["🐱","#FFF1C2"], dog:["🐶","#F3E2D0"], panda:["🐼","#E8E8ED"], lion:["🦁","#FFE8B8"], tiger:["🐯","#FFE0B3"],
+  bear:["🐻","#EFDCCB"], koala:["🐨","#E3E7EE"], frog:["🐸","#DDF3D2"], owl:["🦉","#EADFD3"], penguin:["🐧","#DDE9F7"], unicorn:["🦄","#F4E1F7"],
+  bunny:["🐰","#FCE4EC"], monkey:["🐵","#F1E3D3"], chick:["🐥","#FFF4C7"], octopus:["🐙","#FADADD"], whale:["🐳","#D8ECFA"], turtle:["🐢","#DFF2DA"],
+  bee:["🐝","#FFF1BF"], butterfly:["🦋","#DCEBFF"], avocado:["🥑","#E3F2D5"], strawberry:["🍓","#FDE0E0"], lemon:["🍋","#FFF6C9"], cookie:["🍪","#F4E4D0"] };
+function avatar(p, size){
+  const cls = "av" + (size ? " " + size : "");
+  if (p && /^https:\/\//.test(p.avatar)) return `<img class="${cls}" src="${esc(p.avatar)}" alt="" decoding="async">`;
+  const a = p && AVATARS[String(p.avatar || "").replace("preset:", "")];
+  if (a) return `<span class="${cls}" style="--av:${a[1]}" aria-hidden="true">${a[0]}</span>`;
+  return `<span class="${cls} anon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="9" r="4"/><path d="M4 20.5a8 8 0 0 1 16 0z"/></svg></span>`;
+}
+
+/* ---------- guess a category + unit from an item name (English + Arabic) ---------- */
+const CAT_UNIT = {1:"kg",2:"bottle",3:"pack",4:"jar",5:"pack",6:"bottle",7:"roll",8:"pcs",9:"kg",10:"pcs",11:"bag"};
+const GUESS = [   // [category id, unit, keywords]. The longest matching keyword wins.
+  [1,"kg","rice|basmati|flour|lentil|lentils|beans|fava beans|foul|chickpeas|bulgur|freekeh|semolina|couscous|roz|رز|أرز|دقيق|عدس|فول|حمص|برغل|سميد|فريك|كسكسي"],
+  [1,"pack","pasta|macaroni|spaghetti|penne|noodles|indomie|vermicelli|starch|bread|toast|baladi|pita|oats|oatmeal|cornflakes|cereal|biscuit|biscuits|crackers|rusk|croissant|yeast|breadcrumbs|cake|مكرونة|معكرونة|اسباجتي|اندومي|شعرية|نشا|عيش|خبز|توست|شوفان|كورن فليكس|بسكويت|بقسماط|خميرة|كيك|كرواسون"],
+  [2,"bottle","oil|olive oil|sunflower oil|corn oil|vinegar|ketchup|soy sauce|hot sauce|sauce|bbq sauce|dressing|زيت|زيت زيتون|خل|كاتشب|صويا|شطة|صوص"],
+  [2,"jar","mustard|mayonnaise|mayo|pickle|pickles|olives|ghee|samna|مستردة|مسطردة|مايونيز|مخلل|مخللات|طرشي|زيتون|سمنة"],
+  [2,"can","tomato paste|tomato sauce|paste|صلصة|معجون طماطم"],
+  [3,"pack","salt|pepper|black pepper|paprika|cumin|coriander|cinnamon|turmeric|curry|ginger|cardamom|nutmeg|cloves|oregano|thyme|rosemary|bay leaves|chili flakes|spice|spices|seasoning|garlic powder|onion powder|stock cubes|bouillon|maggi|knorr|ملح|فلفل|فلفل اسود|بابريكا|كمون|كزبرة|قرفة|كركم|كاري|زنجبيل|حبهان|هيل|جوزة الطيب|قرنفل|زعتر|اوريجانو|روزماري|ورق لورا|بهارات|توابل|مرقة|ماجي|كنور|شطة مجروشة"],
+  [4,"kg","sugar|brown sugar|سكر"],
+  [4,"jar","honey|molasses|tahini|jam|nutella|chocolate spread|peanut butter|halawa|halva|syrup|date paste|عسل|عسل اسود|طحينة|مربى|نوتيلا|حلاوة|زبدة فول سوداني|دبس|عجوة"],
+  [4,"box","sweetener|stevia|splenda|محلي|ستيفيا"],
+  [5,"pack","coffee|turkish coffee|cocoa|قهوة|بن|كاكاو"],
+  [5,"jar","nescafe|instant coffee|نسكافيه|نسكافية"],
+  [5,"box","tea|tea bags|green tea|herbal tea|شاي|شاي اخضر|ينسون|كركديه"],
+  [5,"bottle","water|mineral water|juice|milkshake|مياه|مياه معدنية|عصير"],
+  [5,"can","pepsi|cola|coke|coca cola|soda|sprite|7up|seven up|fanta|mirinda|schweppes|red bull|energy drink|بيبسي|كولا|كوكاكولا|سفن اب|سبرايت|فانتا|ميرندا|ريد بول|مشروب"],
+  [6,"bottle","dish soap|dishwashing liquid|detergent|washing gel|laundry|fabric softener|softener|bleach|clorox|cleaner|floor cleaner|glass cleaner|disinfectant|dettol|fairy|pril|persil|ariel|air freshener|منظف|صابون مواعين|سائل غسيل|جل غسيل|منعم|كلور|كلوركس|مطهر|ديتول|فيري|بريل|برسيل|اريال|معطر|معطر جو"],
+  [6,"bag","washing powder|powder detergent|مسحوق|مسحوق غسيل"],
+  [6,"pcs","soap|sponge|sponges|steel wool|mop|broom|scrubber|gloves|صابون|اسفنجة|سلك|ممسحة|مقشة|جوانتي"],
+  [7,"roll","toilet paper|kitchen roll|kitchen paper|paper towels|foil|aluminium foil|aluminum foil|cling film|plastic wrap|baking paper|garbage bags|rubbish bags|trash bags|bin bags|freezer bags|bags|ورق تواليت|ورق مطبخ|فويل|الومنيوم|سلوفان|ورق زبدة|اكياس|أكياس زبالة|شنط زبالة|أكياس فريزر"],
+  [7,"box","tissue|tissues|napkins|kleenex|facial tissues|مناديل|كلينكس|فاين"],
+  [7,"pack","paper cups|paper plates|plastic cups|plastic plates|plastic forks|plastic spoons|straws|اكواب ورق|اطباق ورق|اطباق بلاستيك"],
+  [8,"pcs","toothpaste|toothbrush|shampoo|conditioner|shower gel|body wash|hand soap|deodorant|razor|razors|shaving foam|shaving cream|lotion|body lotion|hand cream|face cream|sunscreen|floss|mouthwash|sanitizer|hand sanitizer|hair oil|hair gel|perfume|cotton|cotton buds|معجون|معجون اسنان|فرشاة|فرشة اسنان|شامبو|بلسم|شاور جل|صابون ايد|مزيل عرق|ديودرانت|موس|موس حلاقة|كريم حلاقة|لوشن|كريم|واقي شمس|غسول|معقم|جل شعر|زيت شعر|برفان|قطن"],
+  [8,"pack","pads|always|sanitary pads|diapers|pampers|wipes|wet wipes|baby wipes|tampons|فوط|فوط صحية|اولويز|بامبرز|حفاضات|مناديل مبللة|مناديل مبلولة"],
+  [9,"kg","beef|meat|steak|minced meat|mince|ground beef|veal|lamb|mutton|liver|chicken|chicken breast|chicken thighs|chicken wings|wings|fillet|turkey|duck|rabbit|fish|salmon|tilapia|shrimp|shrimps|prawns|calamari|kofta|لحم|لحمة|لحمة مفرومة|مفروم|كبدة|كلاوي|كندوز|بتلو|ضاني|فراخ|دجاج|صدور فراخ|اوراك|اجنحة|ديك رومي|بط|ارانب|سمك|بلطي|سلمون|جمبري|كاليماري|كفتة|فيليه|استيك|بفتيك"],
+  [9,"pcs","whole chicken|فرخة"],
+  [9,"pack","burger|burgers|sausage|sausages|hot dog|hot dogs|برجر|سجق|هوت دوج"],
+  [9,"can","tuna|sardines|تونة|سردين"],
+  [10,"L","milk|full cream milk|skimmed milk|laban|لبن|حليب"],
+  [10,"pcs","yogurt|yoghurt|zabadi|rayeb|actimel|butter|zebda|kiri|la vache|cream cheese|زبادي|رايب|اكتيميل|زبدة|كيري|لافاش|جبنة مثلثات"],
+  [10,"kg","cheese|gebna|feta|cheddar|mozzarella|roumi|halloumi|gouda|edam|white cheese|old cheese|cottage cheese|labneh|luncheon|salami|pastrami|turkey slices|smoked turkey|جبنة|جبن|جبنة بيضاء|جبنة رومي|رومي|موتزاريلا|شيدر|فيتا|حلومي|جودة|ايدام|قريش|لبنة|مش|لانشون|سلامي|بسطرمة|تركي مدخن"],
+  [10,"pack","cream|cooking cream|whipping cream|qishta|eshta|قشطة|كريمة|كريمة طبخ|كريمة خفق"],
+  [10,"tray","eggs|egg|بيض"],
+  [11,"bag","frozen|frozen vegetables|mixed vegetables|peas|green beans|okra|molokhia|spinach|corn|fries|french fries|nuggets|frozen pizza|بسلة|فاصوليا خضراء|بامية|ملوخية|سبانخ|ذرة|خضار مشكل|خضار مجمد|مجمد|مجمدة|بطاطس محمرة|بطاطس مجمدة|ناجتس"],
+  [11,"box","ice cream|ايس كريم|آيس كريم|جيلاتي"]
+];
+// Lower-case, strip accents/harakat, unify alef/taa marbuta/yaa so spellings match.
+const norm = s => String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f\u064b-\u065f\u0670]/g, "")
+  .replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const GUESS_RULES = GUESS.flatMap(([cat, unit, words]) => words.split("|").map(w => {
+  const k = norm(w), latin = /[a-z0-9]/.test(k), esk = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // English: whole words (+ plural). Short Arabic words: whole word, optional "ال". Longer Arabic: anywhere in the name.
+  const re = latin ? new RegExp(`(?:^| )${esk}(?:s|es)?(?= |$)`) : k.length <= 3 ? new RegExp(`(?:^| )(?:ال|وال|بال)?${esk}(?= |$)`) : null;
+  return { cat, unit, k, len: k.length, test: re ? t => re.test(t) : t => t.includes(k) };
+}));
+function guessCategory(name){
+  const t = norm(name); let best = null;
+  if (t) GUESS_RULES.forEach(r => { if (r.len > (best ? best.len : 0) && CATS.some(c => c.id === r.cat) && r.test(t)) best = r; });
+  return best && { cat: best.cat, unit: best.unit };
+}
+
 /* ---------- feedback: iOS haptic tick + soft click sound ---------- */
 const fb = (() => {
   let sw, ac, noise, lastHaptic = 0;
@@ -56,7 +129,7 @@ const fb = (() => {
 
 function setSave(state, label){ const el = $("#saveState"); el.className = "save-state " + state; el.querySelector("span").textContent = label; }
 let toastT; function toast(m){ const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2800); }
-function cache(){ try { localStorage.setItem(CACHE, JSON.stringify({CATS, ITEMS, sessions})); } catch(e){} }
+function cache(){ try { localStorage.setItem(CACHE, JSON.stringify({CATS, ITEMS, sessions, PROFILES})); } catch(e){} }
 const chev = `<span class="chev" aria-hidden="true"><i></i><i></i></span>`;
 const hueOf = id => { const c = CATS.find(c => c.id === id); return c ? c.hue : "#0071E3"; };
 
@@ -66,6 +139,9 @@ const dayKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-
 const parseDay = k => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
 function longDate(k){ const d = parseDay(k);
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" }); }
+const shortDay = k => { const y = new Date(); y.setDate(y.getDate() - 1); return k === dayKey() ? "today" : k === dayKey(y) ? "yesterday" : longDate(k); };
+const timeOf = ts => new Date(ts).toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
+function whenLabel(ts){ const s = shortDay(dayKey(new Date(ts))); return `${s[0].toUpperCase() + s.slice(1)}, ${timeOf(ts)}`; }
 function dayLabel(k){
   const y = new Date(); y.setDate(y.getDate() - 1);
   return k === dayKey() ? `Today · ${longDate(k)}` : k === dayKey(y) ? `Yesterday · ${longDate(k)}` : longDate(k);
@@ -235,12 +311,14 @@ function renderHistory(){
   $("#histMeta").textContent = days.length ? `${days.length} ${days.length === 1 ? "day" : "days"} saved.` : "Nothing saved yet.";
   $(".seg").dataset.sel = histTab;
   document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === histTab));
+  if (histTab === "activity"){ renderActivity(body); return; }
   if (!days.length){ body.innerHTML = `<p class="hist-empty">Pick items and press <b>Confirm</b>.<br>Each day's list shows up here.</p>`; return; }
   if (histTab === "dates"){
     if (!openDays.size) openDays.add(days[0].day);
     body.innerHTML = days.map(s => { const open = openDays.has(s.day), rows = s.items.filter(r => byId[r.item_id]).sort((a, b) => byId[a.item_id].no - byId[b.item_id].no);
+      const by = s.updated_at ? `<span class="day-by">${s.saved_by_profile ? `Saved by ${esc(whoName(s.saved_by_profile))} · ` : "Saved "}${esc(timeOf(s.updated_at))}</span>` : "";
       return `<div class="day${open ? " open" : ""}" data-day="${s.day}">
-        <button class="day-head" type="button" aria-expanded="${open}"><span class="day-date">${esc(dayLabel(s.day))}</span><span class="day-n">${rows.length} ${rows.length === 1 ? "item" : "items"}</span>${chev}</button>
+        <button class="day-head" type="button" aria-expanded="${open}">${avatar(PROFILES[s.saved_by_profile], "s32")}<span class="day-t"><span class="day-date">${esc(dayLabel(s.day))}</span>${by}</span><span class="day-n">${rows.length} ${rows.length === 1 ? "item" : "items"}</span>${chev}</button>
         <div class="day-body"><div><table class="htable"><tbody>${rows.map(r => itemRow(r.item_id, `${fmt(Number(r.qty))} ${esc(r.unit)}`)).join("")}</tbody></table></div></div></div>`; }).join("");
   } else {
     const t = totals();
@@ -248,6 +326,27 @@ function renderHistory(){
       <table class="htable totals"><thead><tr><th>Item</th><th>Total</th></tr></thead><tbody>${ITEMS.filter(i => t[i.id]).map(i =>
         itemRow(i.id, Object.entries(t[i.id]).map(([u, q]) => `${fmt(Math.round(q * 100) / 100)} ${esc(u)}`).join(" + "))).join("")}</tbody></table>`;
   }
+}
+function changeRow(c){
+  const nm = byId[c.item_id] ? byId[c.item_id].name : c.item_id, q = v => `${fmt(Number(v.qty))} ${v.unit}`;
+  if (!c.from) return `<li><i class="chg add" aria-label="added">+</i><span>${esc(nm)}</span><b${Number(c.to.qty) === 0 ? ' class="gone"' : ""}>${esc(q(c.to))}</b></li>`;
+  if (!c.to) return `<li><i class="chg rem" aria-label="removed">−</i><span>${esc(nm)}</span><b class="muted">removed</b></li>`;
+  return `<li><i class="chg edit" aria-label="changed">↻</i><span>${esc(nm)}</span><b>${esc(c.from.unit === c.to.unit ? fmt(Number(c.from.qty)) : q(c.from))} → ${esc(q(c.to))}</b></li>`;
+}
+function renderActivity(body){
+  if (!activity.length){ body.innerHTML = `<p class="hist-empty">No activity yet.<br>Every save and new item shows up here with who did it.</p>`; return; }
+  body.innerHTML = `<ul class="acts">${activity.map(a => {
+    const who = `<b>${esc(whoName(a.profile_id))}</b>`, d = a.details || {};
+    let what = "", extra = "";
+    if (a.kind === "save"){ const ch = d.changes || [];
+      what = `${who} saved the list for ${esc(shortDay(a.day))}`;
+      extra = `<ul class="chgs">${ch.slice(0, 8).map(changeRow).join("")}${ch.length > 8 ? `<li class="more">+ ${ch.length - 8} more changes</li>` : ""}</ul>`; }
+    else if (a.kind === "add_item"){ const c = CATS.find(c => c.id === d.category_id);
+      what = `${who} added a new item`;
+      extra = `<ul class="chgs"><li><i class="chg add" aria-label="added">+</i><span>${esc(d.name)}</span><b class="muted">${esc(c ? c.name : "")} · ${esc(d.unit)}</b></li></ul>`; }
+    else if (a.kind === "reset"){ what = `${who} reset all history`; extra = `<p class="act-note">${d.days || 0} saved ${d.days === 1 ? "day" : "days"} deleted</p>`; }
+    return `<li class="act">${avatar(PROFILES[a.profile_id], "s32")}<div><p class="act-t">${what}</p>${extra}<time datetime="${esc(a.at)}">${esc(whenLabel(a.at))}</time></div></li>`;
+  }).join("")}</ul>`;
 }
 function setTab(tab){ if (histTab === tab) return; histTab = tab; renderHistory(); }
 $("#history").addEventListener("click", e => {
@@ -270,14 +369,17 @@ function unsetItem(id){ delete stock[id]; render(new Set([id])); }
 /* ---------- confirm: save today's list (replaces today's row) ---------- */
 $("#confirmBtn").onclick = async () => {
   if (!sb){ fb.error(); toast("You're offline. Connect and try again."); return; }
+  if (needProfile(() => $("#confirmBtn").click(), "Add your name first, so everyone can see who saved this list.")) return;
   fb.tap();
   const day = dayKey(), items = picks();
   saving = true; render(); setSave("saving", "Saving");
-  const { error } = await sb.from("purchases_sessions").upsert({ day, items, saved_by: DEVICE });
+  const { error } = await sb.from("purchases_sessions").upsert({ day, items, saved_by: DEVICE, saved_by_profile: me.id });
   saving = false;
   if (error){ setSave("", "Not saved"); render(); fb.error(); toast("Couldn't save. Check your connection and try again."); return; }
   const i = sessions.findIndex(s => s.day === day);
-  if (i >= 0) sessions[i].items = items; else sessions.unshift({ day, items });
+  const row = { day, items, saved_by_profile: me.id, updated_at: new Date().toISOString() };
+  if (i >= 0) sessions[i] = row; else sessions.unshift(row);
+  refreshActivity();
   openDays.clear(); openDays.add(day); histTab = "dates";
   justSaved = true; clearTimeout(justSavedT); justSavedT = setTimeout(() => { justSaved = false; render(); }, 2000);
   cache(); setSave("saved", "Saved"); render(); renderHistory(); fb.success();
@@ -294,11 +396,11 @@ $("#resetForm").addEventListener("submit", async e => {
   if (!code){ fb.error(); $("#resetErr").textContent = "Enter the passcode."; return; }
   if (!sb){ fb.error(); $("#resetErr").textContent = "You're offline."; return; }
   fb.tap(); go.disabled = true; $("#resetErr").textContent = "";
-  const { data, error } = await sb.rpc("purchases_reset_history", { passcode: code });
+  const { data, error } = await sb.rpc("purchases_reset_history", { passcode: code, p_profile: myProfile() ? me.id : null });
   go.disabled = false;
   if (error){ fb.error(); $("#resetErr").textContent = /locked/.test(error.message) ? "Too many wrong tries. Wait 15 minutes." : "Couldn't reset. Check your connection."; return; }
   if (data < 0){ fb.error(); $("#resetErr").textContent = "Wrong passcode."; $("#passcode").select(); return; }
-  sessions = []; stock = {}; openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close();
+  sessions = []; stock = {}; openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close(); refreshActivity();
   fb.success(); toast("History reset.");
 });
 
@@ -311,14 +413,131 @@ function showRecent(){
   $("#recentMeta").textContent = `${dayLabel(last.day)} · ${rows.length} ${rows.length === 1 ? "item" : "items"}`;
   $("#recentList").innerHTML = shown.map(r => itemRow(r.item_id, `<span${Number(r.qty) === 0 ? ' class="qty-zero"' : ""}>${fmt(Number(r.qty))} ${esc(r.unit)}</span>`)).join("")
     + (rows.length > shown.length ? `<tr class="more"><td colspan="2">+ ${rows.length - shown.length} more</td></tr>` : "");
+  const by = last.saved_by_profile, byEl = $("#recentBy"); byEl.hidden = !by;
+  if (by) byEl.innerHTML = `${avatar(PROFILES[by], "s22")}<span>Saved by <b>${esc(whoName(by))}</b>${last.updated_at ? ` · ${esc(timeOf(last.updated_at))}` : ""}</span>`;
   $("#recentDlg").dataset.day = last.day;
-  if (!$("#resetDlg").open) $("#recentDlg").showModal();
+  if (!document.querySelector("dialog[open]")) $("#recentDlg").showModal();
 }
 $("#recentOk").onclick = () => { fb.tap(); $("#recentDlg").close(); };
 $("#recentHist").onclick = () => { fb.tap(); const d = $("#recentDlg"); d.close(); openDays.clear(); openDays.add(d.dataset.day); histTab = "dates"; renderHistory(); go("history"); };
 $("#recentDlg").addEventListener("click", e => {   // tap outside the sheet closes it
   const d = e.currentTarget, r = d.getBoundingClientRect();
   if (e.target === d && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) d.close();
+});
+
+/* ---------- profile sheet: name + preset avatar or uploaded photo ---------- */
+const pfDlg = $("#profileDlg"), pfNoteDefault = $("#pfNote").textContent;
+let pfAvatar = null, pfThen = null, pfBusy = false;
+$("#avGrid").innerHTML = Object.entries(AVATARS).map(([k, [e, bg]]) =>
+  `<button type="button" class="av-opt" role="radio" aria-checked="false" aria-label="${k}" data-av="preset:${k}"><span class="av" style="--av:${bg}">${e}</span></button>`).join("");
+function renderMe(){
+  const p = myProfile();
+  $("#meAv").innerHTML = avatar(p); $("#meName").textContent = p ? p.name : "Profile";
+  $("#meBtn").setAttribute("aria-label", p ? `Your profile: ${p.name}` : "Create your profile");
+  $("#profileLbl").textContent = p ? `Profile: ${p.name}` : "Create your profile";
+}
+function pfPaint(){
+  $("#pfPreview").innerHTML = avatar({ avatar: pfAvatar }, "lg");
+  $("#avGrid").querySelectorAll(".av-opt").forEach(b => b.setAttribute("aria-checked", b.dataset.av === pfAvatar));
+}
+function openProfile(then, note){
+  const p = myProfile(), keys = Object.keys(AVATARS); pfThen = then || null;
+  pfAvatar = p ? p.avatar : "preset:" + keys[Math.floor(Math.random() * keys.length)];
+  $("#pfName").value = p ? p.name : ""; $("#pfErr").textContent = ""; $("#pfNote").textContent = note || pfNoteDefault;
+  $("#pfTitle").textContent = p ? "Your profile" : "Who's picking?"; $("#pfCancel").textContent = p ? "Cancel" : "Not now";
+  $("#pfFileLbl").textContent = "Upload your own photo"; pfPaint();
+  document.querySelectorAll("dialog[open]").forEach(d => d.close());
+  pfDlg.showModal();
+}
+function needProfile(then, note){ if (myProfile()) return false; openProfile(then, note); return true; }
+pfDlg.addEventListener("close", () => { const t = pfThen; pfThen = null; if (t && myProfile()) setTimeout(t, 250); else if (loaded) setTimeout(showRecent, 250); });
+$("#avGrid").addEventListener("click", e => { const b = e.target.closest(".av-opt"); if (!b) return; fb.tap(); pfAvatar = b.dataset.av; pfPaint(); });
+$("#pfCancel").onclick = () => { fb.tap(); pfThen = null; pfDlg.close(); };
+// Photos are centre-cropped to 256×256 JPEG on the phone before upload (small, and strips location data).
+function squareJpeg(file, size){
+  return new Promise((ok, bad) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const s = Math.min(img.naturalWidth, img.naturalHeight), c = document.createElement("canvas"); c.width = c.height = size;
+      const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, size, size);
+      x.drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, size, size);
+      URL.revokeObjectURL(url); c.toBlob(b => b ? ok(b) : bad(new Error("encode")), "image/jpeg", 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); bad(new Error("decode")); };
+    img.src = url;
+  });
+}
+$("#pfFile").addEventListener("change", async e => {
+  const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+  if (!sb){ fb.error(); $("#pfErr").textContent = "You're offline."; return; }
+  pfBusy = true; $("#pfSave").disabled = true; $("#pfErr").textContent = ""; $("#pfFileLbl").textContent = "Uploading…";
+  try {
+    const blob = await squareJpeg(f, 256), path = `${me.id}/${Date.now().toString(36)}.jpg`;
+    const { error } = await sb.storage.from("purchases-avatars").upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000", upsert: false });
+    if (error) throw error;
+    pfAvatar = sb.storage.from("purchases-avatars").getPublicUrl(path).data.publicUrl; pfPaint(); fb.success();
+    $("#pfFileLbl").textContent = "Choose a different photo";
+  } catch(err){ fb.error(); $("#pfErr").textContent = "Couldn't use that photo. Try another one."; $("#pfFileLbl").textContent = "Upload your own photo"; }
+  pfBusy = false; $("#pfSave").disabled = false;
+});
+$("#profileForm").addEventListener("submit", async e => {
+  e.preventDefault(); if (pfBusy) return;
+  const name = $("#pfName").value.trim().replace(/\s+/g, " ");
+  if (!name){ fb.error(); $("#pfErr").textContent = "Type your name."; return; }
+  if (!sb){ fb.error(); $("#pfErr").textContent = "You're offline."; return; }
+  fb.tap(); $("#pfSave").disabled = true;
+  const { data, error } = await sb.rpc("purchases_profile_save", { p_id: me.id, p_key: me.key, p_name: name, p_avatar: pfAvatar });
+  $("#pfSave").disabled = false;
+  if (error || !data){ fb.error(); $("#pfErr").textContent = error && /not_yours/.test(error.message) ? "This profile belongs to another device." : "Couldn't save. Check your connection."; return; }
+  const first = !myProfile(); PROFILES[me.id] = { id: data.id, name: data.name, avatar: data.avatar };
+  cache(); renderMe(); renderHistory(); fb.success(); pfDlg.close();
+  toast(first ? `Welcome, ${data.name}!` : "Profile saved.");
+});
+$("#meBtn").onclick = () => { fb.tap(); if (menuOpen()) setMenu(false); openProfile(); };
+
+/* ---------- add an item: category + unit picked automatically, both can be changed ---------- */
+const addDlg = $("#addDlg"); let catPicked = false, unitPicked = false;
+$("#addUnit").innerHTML = UNITS.map(u => `<option value="${u}">${u}</option>`).join("");
+function openAdd(name){
+  if (needProfile(() => openAdd(name), "Add your name first, so everyone can see who added the item.")) return;
+  catPicked = unitPicked = false;
+  $("#addCat").innerHTML = `<option value="">Choose a category</option>` + CATS.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  $("#addName").value = name || ""; $("#addErr").textContent = ""; addGuess();
+  document.querySelectorAll("dialog[open]").forEach(d => d.close());
+  addDlg.showModal();
+}
+function addGuess(){
+  const name = $("#addName").value.trim().replace(/\s+/g, " "), low = name.toLowerCase();
+  const dup = name && ITEMS.find(i => i.name.toLowerCase() === low), g = name ? guessCategory(name) : null, sel = $("#addCat"), hint = $("#addHint");
+  if (!catPicked) sel.value = g ? String(g.cat) : "";
+  const cat = +sel.value || null;
+  if (!unitPicked) $("#addUnit").value = g && g.cat === cat ? g.unit : CAT_UNIT[cat] || "pcs";
+  $("#addAuto").hidden = catPicked || !g;
+  hint.className = "add-hint" + (dup ? " warn" : "");
+  hint.textContent = dup ? `"${dup.name}" is already on the list, in ${CATS.find(c => c.id === dup.cat).name}.`
+    : !name ? "Type a name and the app picks a category."
+    : catPicked ? "You chose the category." : g ? "Category picked automatically. You can change it." : "Couldn't tell the category. Please choose one.";
+  $("#addGo").disabled = !name || !!dup || !cat;
+}
+$("#addName").addEventListener("input", addGuess);
+$("#addCat").addEventListener("change", () => { catPicked = true; fb.tap(); addGuess(); });
+$("#addUnit").addEventListener("change", () => { unitPicked = true; fb.tap(); });
+$("#addCancel").onclick = () => { fb.tap(); addDlg.close(); };
+$("#addForm").addEventListener("submit", async e => {
+  e.preventDefault(); const btn = $("#addGo"); if (btn.disabled) return;
+  const name = $("#addName").value.trim().replace(/\s+/g, " "), cat = +$("#addCat").value, unit = $("#addUnit").value;
+  if (!sb){ fb.error(); $("#addErr").textContent = "You're offline."; return; }
+  fb.tap(); btn.disabled = true; $("#addErr").textContent = "";
+  const { data: id, error } = await sb.rpc("purchases_add_item", { p_name: name, p_category: cat, p_unit: unit, p_profile: me.id });
+  btn.disabled = false;
+  if (error){ fb.error(); $("#addErr").textContent = /exists/.test(error.message) ? "That item is already on the list." : /no_profile/.test(error.message) ? "Save your profile first." : "Couldn't add it. Check your connection."; return; }
+  addDlg.close(); fb.success();
+  await reloadItems(); refreshActivity();
+  const c = CATS.find(c => c.id === cat); toast(`Added ${name} to ${c ? c.name : "the list"}.`);
+  const s = $("#search"); if (s.value){ s.value = ""; s.dispatchEvent(new Event("input")); }
+  openCats.add(cat); render();
+  const li = catsEl.querySelector(`.item[data-id="${CSS.escape(id)}"]`);
+  if (li){ li.classList.add("new"); setTimeout(() => li.scrollIntoView({ block: "center", behavior: "smooth" }), 350); setTimeout(() => li.classList.remove("new"), 2600); }
 });
 
 /* ---------- push notifications + app-icon badge ---------- */
@@ -382,7 +601,9 @@ menu.addEventListener("click", e => {
   if (g === "notify"){ fb.tap(); toggleNotify(); return; }   // stays in the tap so iOS allows the permission prompt
   fb.tap(); setMenu(false);
   setTimeout(() => {
-    if (g === "history" || g === "totals"){ setTab(g === "totals" ? "totals" : "dates"); go("history"); }
+    if (g === "history" || g === "totals" || g === "activity"){ setTab(g === "history" ? "dates" : g); go("history"); }
+    else if (g === "add") openAdd();
+    else if (g === "profile") openProfile();
     else if (g === "cats") go("catsBlock");
     else if (g === "export") exportCsv();
     else if (g === "reset") openReset();
@@ -394,6 +615,7 @@ $("#histBtn").onclick = () => { fb.tap(); go("history"); };
 
 /* ---------- interactions ---------- */
 catsEl.addEventListener("click", e => {
+  if (e.target.closest(".add-miss")){ fb.tap(); $("#search").blur(); openAdd($("#search").value.trim()); return; }
   const head = e.target.closest(".cat-head");
   if (head){ const cid = +head.parentElement.dataset.cid; openCats.has(cid) ? openCats.delete(cid) : openCats.add(cid); fb.tap(); render(); return; }
   const li = e.target.closest(".item"); if (!li) return; const id = li.dataset.id;
@@ -433,7 +655,8 @@ $("#search").addEventListener("input", e => {
     if (q && hits) openCats.add(c.id); if (!sec.hidden) any = true;
   });
   let em = $("#emptyMsg");
-  if (!any){ if (!em){ em = document.createElement("div"); em.id = "emptyMsg"; em.className = "empty"; catsEl.appendChild(em); } em.textContent = `No item matches "${e.target.value}".`; }
+  if (!any){ if (!em){ em = document.createElement("div"); em.id = "emptyMsg"; em.className = "empty"; catsEl.appendChild(em); }
+    em.innerHTML = `No item matches "${esc(e.target.value.trim())}".<br><button class="pill outline small add-miss" type="button">Add "${esc(e.target.value.trim())}" to the list</button>`; }
   else if (em) em.remove();
   render();
 });
@@ -456,7 +679,22 @@ function apply(cats, items){
   CATS.forEach(c => items.filter(i => i.category_id === c.id).sort((a, b) => a.sort - b.sort)
     .forEach(i => ITEMS.push({ id: i.id, name: i.name, unit: i.default_unit, cat: c.id, no: ++n })));
 }
-const fetchSessions = () => sb.from("purchases_sessions").select("day,items").order("day", { ascending: false });
+const fetchSessions = () => sb.from("purchases_sessions").select("day,items,saved_by_profile,updated_at").order("day", { ascending: false });
+const fetchCats = () => sb.from("purchases_categories").select("id,name,sub,hue,sort").order("sort");
+const fetchItems = () => sb.from("purchases_items").select("id,name,category_id,default_unit,sort").order("sort");
+const fetchProfiles = () => sb.from("purchases_profiles").select("id,name,avatar");
+const fetchActivity = () => sb.from("purchases_activity").select("id,at,profile_id,kind,day,details").order("at", { ascending: false }).limit(100);
+const itemsKey = () => JSON.stringify(ITEMS.map(i => [i.id, i.name, i.cat, i.unit]));
+const setProfiles = rows => { PROFILES = Object.fromEntries(rows.map(p => [p.id, { id: p.id, name: p.name, avatar: p.avatar }])); };
+async function reloadItems(){
+  const [cr, ir] = await Promise.all([fetchCats(), fetchItems()]); if (cr.error || ir.error) return;
+  const prev = itemsKey(); apply(cr.data, ir.data);
+  if (prev !== itemsKey()){ const sel = selected; build(); selected = null; if (sel && byId[sel]) selectItem(sel); if ($("#search").value) $("#search").dispatchEvent(new Event("input")); }
+  cache(); render(); renderHistory();
+}
+async function refreshProfiles(){ const r = await fetchProfiles(); if (r.error) return; setProfiles(r.data); cache(); renderMe(); renderHistory(); }
+async function refreshActivity(){ const r = await fetchActivity(); if (r.error) return; activity = r.data; if (histTab === "activity") renderHistory(); }
+const debounce = (f, ms) => { let t; return () => { clearTimeout(t); t = setTimeout(f, ms); }; };
 async function refreshSessions(){
   const wasDirty = isDirty(), r = await fetchSessions(); if (r.error) return;
   sessions = r.data;
@@ -465,20 +703,26 @@ async function refreshSessions(){
 }
 async function load(){
   try { const c = JSON.parse(localStorage.getItem(CACHE) || "null");
-    if (c && c.CATS && c.CATS.length){ CATS = c.CATS; ITEMS = c.ITEMS; sessions = c.sessions || []; build(); loadToday(); render(); renderHistory(); } } catch(e){}
+    if (c && c.CATS && c.CATS.length){ CATS = c.CATS; ITEMS = c.ITEMS; sessions = c.sessions || []; PROFILES = c.PROFILES || {}; build(); loadToday(); render(); renderHistory(); } } catch(e){}
+  renderMe();
   if (!sb){ setSave("", "Offline"); return; }
-  const [cr, ir, hr] = await Promise.all([
-    sb.from("purchases_categories").select("id,name,sub,hue,sort").order("sort"),
-    sb.from("purchases_items").select("id,name,category_id,default_unit,sort").order("sort"),
-    fetchSessions()
-  ]);
+  const [cr, ir, hr, pr, ar] = await Promise.all([fetchCats(), fetchItems(), fetchSessions(), fetchProfiles(), fetchActivity()]);
+  if (!pr.error){ setProfiles(pr.data); renderMe(); }
+  if (!ar.error) activity = ar.data;
   if (cr.error || ir.error || hr.error){ setSave("", "Offline"); if (!built) catsEl.innerHTML = `<div class="empty">Couldn't load your list. Check your connection and reload.</div>`; return; }
-  const prevKey = JSON.stringify(ITEMS.map(i => [i.id, i.name, i.cat])), wasDirty = built && isDirty();
+  const prevKey = itemsKey(), wasDirty = built && isDirty();
   apply(cr.data, ir.data); sessions = hr.data;
-  if (!built || prevKey !== JSON.stringify(ITEMS.map(i => [i.id, i.name, i.cat]))){ build(); selected = null; }
+  if (!built || prevKey !== itemsKey()){ build(); selected = null; }
   if (!wasDirty) loadToday();
-  render(); renderHistory(); cache(); setSave("saved", "Synced"); showRecent();
-  sb.channel("purchases-sessions").on("postgres_changes", { event: "*", schema: "public", table: "purchases_sessions" }, () => { if (!saving) refreshSessions(); }).subscribe();
+  render(); renderHistory(); cache(); setSave("saved", "Synced"); loaded = true;
+  if (!myProfile()) openProfile(); else showRecent();   // new visitors pick a name + avatar first
+  const pg = (table, fn) => ["postgres_changes", { event: "*", schema: "public", table }, fn];
+  sb.channel("purchases-live")
+    .on(...pg("purchases_sessions", () => { if (!saving) refreshSessions(); }))
+    .on(...pg("purchases_items", debounce(reloadItems, 300)))
+    .on(...pg("purchases_profiles", debounce(refreshProfiles, 300)))
+    .on(...pg("purchases_activity", debounce(refreshActivity, 300)))
+    .subscribe();
 }
 load();
 })();
