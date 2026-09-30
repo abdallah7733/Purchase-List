@@ -51,7 +51,7 @@
 <main class="wrap" id="top">
   <section class="hero">
     <h1>Purchases List</h1>
-    <p class="hero-sub">Pick today's items.</p>
+    <p class="hero-sub" id="heroSub">Pick today's items.</p>
     <p class="hero-meta"><span id="filledCount">0 of 0</span> picked · <span id="todayLbl"></span><br><span id="totalItems">–</span> items in <span id="totalCats">–</span> categories</p>
     <div class="hero-btns">
       <button class="pill primary" id="startBtn" type="button">Start picking</button>
@@ -75,6 +75,7 @@
 
   <section class="block" id="catsBlock" aria-labelledby="catsTitle">
     <h2 class="headline" id="catsTitle">Categories. <span>Tap to open.</span></h2>
+    <div class="edit-banner" id="editBanner" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg><span>Editing <b id="editDayLbl"></b>. Saving replaces that day's list.</span><button class="linkbtn" id="editStop" type="button">Cancel</button></div>
     <div class="tools">
       <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
         <input id="search" type="search" placeholder="Search items" aria-label="Search items" autocomplete="off" enterkeyhint="search"></label>
@@ -88,6 +89,7 @@
 
 <div class="confirm-bar" id="confirmBar">
   <div class="cb-text"><b id="confirmCount">0 items picked</b><span id="confirmHint"></span></div>
+  <button class="linkbtn cb-cancel" id="editCancel" type="button" hidden>Cancel</button>
   <button class="pill primary" id="confirmBtn" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg><span>Confirm</span></button>
 </div>
 <div class="toast" id="toast" role="status"></div>

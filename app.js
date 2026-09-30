@@ -146,11 +146,26 @@ function dayLabel(k){
   const y = new Date(); y.setDate(y.getDate() - 1);
   return k === dayKey() ? `Today · ${longDate(k)}` : k === dayKey(y) ? `Yesterday · ${longDate(k)}` : longDate(k);
 }
-const todaySession = () => sessions.find(s => s.day === dayKey());
+/* The picker edits today's list, or a past day opened with "Edit" in History (editDay). */
+let editDay = null, todayStash = null;
+const activeDay = () => editDay || dayKey();
+const daySession = () => sessions.find(s => s.day === activeDay());
 const picks = () => ITEMS.filter(i => stock[i.id]).map(i => ({ item_id: i.id, qty: stock[i.id].qty, unit: stock[i.id].unit }));
 const sig = list => JSON.stringify((list || []).map(r => [r.item_id, Number(r.qty), r.unit]).sort((a, b) => a[0] < b[0] ? -1 : 1));
-const isDirty = () => sig(picks()) !== sig(todaySession() ? todaySession().items : []);
-function loadToday(){ stock = {}; const t = todaySession(); if (t) t.items.forEach(r => { stock[r.item_id] = { qty: Number(r.qty), unit: r.unit }; }); }
+const isDirty = () => sig(picks()) !== sig(daySession() ? daySession().items : []);
+function loadDay(){ stock = {}; const t = daySession(); if (t) t.items.forEach(r => { stock[r.item_id] = { qty: Number(r.qty), unit: r.unit }; }); }
+function startEdit(day){
+  if (day === dayKey()){ if (editDay) stopEdit(); go("catsBlock"); return; }
+  if (!editDay) todayStash = isDirty() ? { ...stock } : null;   // keep unsaved picks for today
+  editDay = day; if (selected) selectItem(selected);
+  loadDay(); render(); renderHistory(); go("catsBlock");
+}
+function stopEdit(){
+  if (!editDay) return;
+  editDay = null; if (selected) selectItem(selected);
+  if (todayStash) stock = todayStash; else loadDay();
+  todayStash = null; render(); renderHistory();
+}
 
 /* ---------- build ---------- */
 function build(){
@@ -201,20 +216,24 @@ function render(changed){
     b.classList.toggle("has", !!s && qty > 0); b.classList.toggle("zero", !!s && qty === 0);
   });
   $("#filledCount").textContent = `${filledTotal} of ${ITEMS.length}`;
-  $("#todayLbl").textContent = longDate(dayKey());
+  $("#todayLbl").textContent = longDate(activeDay());
+  $("#heroSub").textContent = editDay ? `Editing ${longDate(editDay)}.` : "Pick today's items.";
+  $("#editBanner").hidden = !editDay; $("#editDayLbl").textContent = editDay ? longDate(editDay) : "";
   renderConfirm(filledTotal);
 }
 
 let justSaved = false, justSavedT;
 function renderConfirm(n){
-  const bar = $("#confirmBar"), btn = $("#confirmBtn"), t = todaySession(), dirty = isDirty();
+  const bar = $("#confirmBar"), btn = $("#confirmBtn"), t = daySession(), dirty = isDirty(), past = !!editDay;
   $("#confirmCount").textContent = n === 1 ? "1 item picked" : `${n} items picked`;
-  $("#confirmHint").textContent = !dirty && t ? (n ? "Saved for today" : "Today's list cleared") : t ? "Confirm to replace today's list" : `For today · ${longDate(dayKey())}`;
+  $("#confirmHint").textContent = past ? `Editing ${longDate(editDay)}${dirty ? "" : " · no changes yet"}`
+    : !dirty && t ? (n ? "Saved for today" : "Today's list cleared") : t ? "Confirm to replace today's list" : `For today · ${longDate(dayKey())}`;
   btn.disabled = saving || !dirty || (!t && n === 0);
-  btn.querySelector("span").textContent = saving ? "Saving…" : !dirty && t ? "Saved" : "Confirm";
-  bar.classList.toggle("done", !dirty && !!t);
-  // Only visible while there's something to confirm, and briefly after saving.
-  const show = saving || dirty || justSaved;
+  btn.querySelector("span").textContent = saving ? "Saving…" : past ? "Save" : !dirty && t ? "Saved" : "Confirm";
+  bar.classList.toggle("done", !past && !dirty && !!t); bar.classList.toggle("editing", past);
+  $("#editCancel").hidden = !past;
+  // Only visible while there's something to confirm, briefly after saving, and while editing a past day.
+  const show = saving || dirty || justSaved || past;
   bar.classList.toggle("show", show);
   document.body.classList.toggle("has-bar", show);
 }
@@ -317,9 +336,10 @@ function renderHistory(){
     if (!openDays.size) openDays.add(days[0].day);
     body.innerHTML = days.map(s => { const open = openDays.has(s.day), rows = s.items.filter(r => byId[r.item_id]).sort((a, b) => byId[a.item_id].no - byId[b.item_id].no);
       const by = s.updated_at ? `<span class="day-by">${s.saved_by_profile ? `Saved by ${esc(whoName(s.saved_by_profile))} · ` : "Saved "}${esc(timeOf(s.updated_at))}</span>` : "";
-      return `<div class="day${open ? " open" : ""}" data-day="${s.day}">
+      return `<div class="day${open ? " open" : ""}${s.day === editDay ? " editing" : ""}" data-day="${s.day}">
         <button class="day-head" type="button" aria-expanded="${open}">${avatar(PROFILES[s.saved_by_profile], "s32")}<span class="day-t"><span class="day-date">${esc(dayLabel(s.day))}</span>${by}</span><span class="day-n">${rows.length} ${rows.length === 1 ? "item" : "items"}</span>${chev}</button>
-        <div class="day-body"><div><table class="htable"><tbody>${rows.map(r => itemRow(r.item_id, `${fmt(Number(r.qty))} ${esc(r.unit)}`)).join("")}</tbody></table></div></div></div>`; }).join("");
+        <div class="day-body"><div><table class="htable"><tbody>${rows.map(r => itemRow(r.item_id, `${fmt(Number(r.qty))} ${esc(r.unit)}`)).join("")}</tbody></table>
+          <div class="day-acts"><button class="pill outline small edit-day" type="button" data-day="${s.day}"${s.day === editDay ? " disabled" : ""}>${s.day === editDay ? "Editing now" : "Edit this day"}</button></div></div></div></div>`; }).join("");
   } else {
     const t = totals();
     body.innerHTML = `<p class="hist-note">All ${days.length} saved ${days.length === 1 ? "day" : "days"} added together.</p>
@@ -339,7 +359,7 @@ function renderActivity(body){
     const who = `<b>${esc(whoName(a.profile_id))}</b>`, d = a.details || {};
     let what = "", extra = "";
     if (a.kind === "save"){ const ch = d.changes || [];
-      what = `${who} saved the list for ${esc(shortDay(a.day))}`;
+      what = `${who} ${a.day && a.day !== dayKey(new Date(a.at)) ? "edited" : "saved"} the list for ${esc(shortDay(a.day))}`;
       extra = `<ul class="chgs">${ch.slice(0, 8).map(changeRow).join("")}${ch.length > 8 ? `<li class="more">+ ${ch.length - 8} more changes</li>` : ""}</ul>`; }
     else if (a.kind === "add_item"){ const c = CATS.find(c => c.id === d.category_id);
       what = `${who} added a new item`;
@@ -352,6 +372,8 @@ function setTab(tab){ if (histTab === tab) return; histTab = tab; renderHistory(
 $("#history").addEventListener("click", e => {
   const tab = e.target.closest(".seg button");
   if (tab){ if (tab.dataset.tab !== histTab) fb.tap(); setTab(tab.dataset.tab); return; }
+  const ed = e.target.closest(".edit-day");
+  if (ed){ fb.tap(); startEdit(ed.dataset.day); return; }
   const head = e.target.closest(".day-head");
   if (head){ const d = head.parentElement.dataset.day; openDays.has(d) ? openDays.delete(d) : openDays.add(d); fb.tap();
     head.parentElement.classList.toggle("open", openDays.has(d)); head.setAttribute("aria-expanded", openDays.has(d)); }
@@ -371,16 +393,19 @@ $("#confirmBtn").onclick = async () => {
   if (!sb){ fb.error(); toast("You're offline. Connect and try again."); return; }
   if (needProfile(() => $("#confirmBtn").click(), "Add your name first, so everyone can see who saved this list.")) return;
   fb.tap();
-  const day = dayKey(), items = picks();
+  const day = activeDay(), items = picks();
   saving = true; render(); setSave("saving", "Saving");
   const { error } = await sb.from("purchases_sessions").upsert({ day, items, saved_by: DEVICE, saved_by_profile: me.id });
   saving = false;
   if (error){ setSave("", "Not saved"); render(); fb.error(); toast("Couldn't save. Check your connection and try again."); return; }
   const i = sessions.findIndex(s => s.day === day);
   const row = { day, items, saved_by_profile: me.id, updated_at: new Date().toISOString() };
-  if (i >= 0) sessions[i] = row; else sessions.unshift(row);
+  if (i >= 0) sessions[i] = row; else { sessions.push(row); sessions.sort((a, b) => a.day < b.day ? 1 : -1); }
   refreshActivity();
   openDays.clear(); openDays.add(day); histTab = "dates";
+  if (editDay){   // past day saved: back to today, show the updated day in History
+    stopEdit(); cache(); setSave("saved", "Saved"); fb.success(); toast(`Saved changes to ${longDate(day)}.`); go("history"); return;
+  }
   justSaved = true; clearTimeout(justSavedT); justSavedT = setTimeout(() => { justSaved = false; render(); }, 2000);
   cache(); setSave("saved", "Saved"); render(); renderHistory(); fb.success();
 };
@@ -400,7 +425,7 @@ $("#resetForm").addEventListener("submit", async e => {
   go.disabled = false;
   if (error){ fb.error(); $("#resetErr").textContent = /locked/.test(error.message) ? "Too many wrong tries. Wait 15 minutes." : "Couldn't reset. Check your connection."; return; }
   if (data < 0){ fb.error(); $("#resetErr").textContent = "Wrong passcode."; $("#passcode").select(); return; }
-  sessions = []; stock = {}; openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close(); refreshActivity();
+  editDay = null; todayStash = null; sessions = []; stock = {}; openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close(); refreshActivity();
   fb.success(); toast("History reset.");
 });
 
@@ -609,6 +634,8 @@ menu.addEventListener("click", e => {
     else if (g === "reset") openReset();
   }, 280);
 });
+function cancelEdit(){ fb.tap(); const changed = isDirty(); stopEdit(); toast(changed ? "Changes discarded." : "Stopped editing."); }
+$("#editStop").onclick = cancelEdit; $("#editCancel").onclick = cancelEdit;
 $("#searchBtn").onclick = () => { fb.tap(); go("catsBlock"); setTimeout(() => $("#search").focus({ preventScroll: true }), 350); };
 $("#startBtn").onclick = () => { fb.tap(); go("catsBlock"); };
 $("#histBtn").onclick = () => { fb.tap(); go("history"); };
@@ -698,12 +725,12 @@ const debounce = (f, ms) => { let t; return () => { clearTimeout(t); t = setTime
 async function refreshSessions(){
   const wasDirty = isDirty(), r = await fetchSessions(); if (r.error) return;
   sessions = r.data;
-  if (!wasDirty){ loadToday(); if (selected) mountPicker(catsEl.querySelector(`.item[data-id="${selected}"]`)); }   // don't wipe picks that aren't confirmed yet
+  if (!wasDirty){ loadDay(); if (selected) mountPicker(catsEl.querySelector(`.item[data-id="${selected}"]`)); }   // don't wipe picks that aren't confirmed yet
   cache(); render(); renderHistory();
 }
 async function load(){
   try { const c = JSON.parse(localStorage.getItem(CACHE) || "null");
-    if (c && c.CATS && c.CATS.length){ CATS = c.CATS; ITEMS = c.ITEMS; sessions = c.sessions || []; PROFILES = c.PROFILES || {}; build(); loadToday(); render(); renderHistory(); } } catch(e){}
+    if (c && c.CATS && c.CATS.length){ CATS = c.CATS; ITEMS = c.ITEMS; sessions = c.sessions || []; PROFILES = c.PROFILES || {}; build(); loadDay(); render(); renderHistory(); } } catch(e){}
   renderMe();
   if (!sb){ setSave("", "Offline"); return; }
   const [cr, ir, hr, pr, ar] = await Promise.all([fetchCats(), fetchItems(), fetchSessions(), fetchProfiles(), fetchActivity()]);
@@ -713,7 +740,7 @@ async function load(){
   const prevKey = itemsKey(), wasDirty = built && isDirty();
   apply(cr.data, ir.data); sessions = hr.data;
   if (!built || prevKey !== itemsKey()){ build(); selected = null; }
-  if (!wasDirty) loadToday();
+  if (!wasDirty) loadDay();
   render(); renderHistory(); cache(); setSave("saved", "Synced"); loaded = true;
   if (!myProfile()) openProfile(); else showRecent();   // new visitors pick a name + avatar first
   const pg = (table, fn) => ["postgres_changes", { event: "*", schema: "public", table }, fn];
