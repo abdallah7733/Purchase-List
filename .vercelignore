@@ -1,0 +1,6 @@
+# Test tooling isn't part of the site.
+tests/
+playwright.config.js
+package.json
+package-lock.json
+node_modules/
