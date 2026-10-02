@@ -1,4 +1,4 @@
-// Purchases List service worker: shows push notifications and keeps the app-icon badge count.
+// Purchases List service worker: shows push notifications ("Mohammed added 3 items…") and keeps the app-icon badge count.
 // No offline caching; the page always loads fresh from the network.
 const META = "purchases-meta", BADGE = "/__badge-count";
 
@@ -16,16 +16,21 @@ self.addEventListener("push", e => {
     if (self.navigator.setAppBadge) try { await self.navigator.setAppBadge(n); } catch (_) {}
     await self.registration.showNotification(d.title || "Purchases List updated", {
       body: d.body || "", icon: "/icon-192.png?v=basket", badge: "/favicon-64.png?v=basket",
-      tag: "purchases-" + (d.day || "update"), renotify: true, data: { url: "/" }
+      tag: d.tag || "purchases-" + (d.day || "update"), renotify: true, data: { url: d.url || "/" }
     });
   })());
 });
 
+// Opens the app on Activity so the person sees exactly what changed.
 self.addEventListener("notificationclick", e => {
   e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || "/";
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const w of wins) if ("focus" in w) return w.focus();
-    return self.clients.openWindow("/");
+    for (const w of wins) if ("focus" in w){
+      if (url.endsWith("#activity")) w.postMessage({ open: "activity" });
+      return w.focus();
+    }
+    return self.clients.openWindow(url);
   })());
 });
