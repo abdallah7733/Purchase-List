@@ -575,7 +575,7 @@ const keyBytes = k => { const b = atob((k + "=".repeat((4 - k.length % 4) % 4)).
 let swReg = null, pushOn = false;
 function notifyLabel(){ $("#notifyLbl").textContent = `Notifications: ${pushOn ? "On" : "Off"}`; }
 async function saveSub(sub){ const j = sub.toJSON();
-  return sb.rpc("purchases_push_subscribe", { sub_endpoint: j.endpoint, sub_p256dh: j.keys.p256dh, sub_auth: j.keys.auth, sub_device: DEVICE }); }
+  return sb.rpc("purchases_push_subscribe", { sub_endpoint: j.endpoint, sub_p256dh: j.keys.p256dh, sub_auth: j.keys.auth, sub_device: DEVICE, sub_profile: me.id }); }
 function clearBadge(){
   if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
   if (window.caches) caches.open("purchases-meta").then(c => c.delete("/__badge-count")).catch(() => {});
@@ -590,6 +590,9 @@ if ("serviceWorker" in navigator){
 }
 clearBadge();
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") clearBadge(); });
+// Tapping a notification opens Activity (sw.js sends a message to an open app, or launches it at /#activity).
+function openActivity(){ setTab("activity"); go("history"); }
+if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", e => { if (e.data && e.data.open === "activity") openActivity(); });
 async function toggleNotify(){
   if (!pushOk() || !sb){ toast(isIOS && !standalone ? "First add the app to your Home Screen: Share → Add to Home Screen, then open it from the icon." : "This browser can't show notifications."); return; }
   if (!swReg){ toast("Still starting up. Try again in a second."); return; }
@@ -603,7 +606,7 @@ async function toggleNotify(){
   catch(e){ fb.error(); toast(Notification.permission === "denied" ? "Notifications are blocked. Allow them in Settings → Notifications → Purchases." : "Couldn't turn on notifications. Try again."); return; }
   const { error } = await saveSub(sub);
   if (error){ fb.error(); toast("Couldn't turn on notifications. Check your connection."); return; }
-  pushOn = true; notifyLabel(); fb.success(); toast("Notifications on. You'll be told when another device saves a list.");
+  pushOn = true; notifyLabel(); fb.success(); toast("Notifications on. You'll be told what others change on the list.");
 }
 
 /* ---------- menu (drops from the nav bar) ---------- */
@@ -732,6 +735,8 @@ async function load(){
   try { const c = JSON.parse(localStorage.getItem(CACHE) || "null");
     if (c && c.CATS && c.CATS.length){ CATS = c.CATS; ITEMS = c.ITEMS; sessions = c.sessions || []; PROFILES = c.PROFILES || {}; build(); loadDay(); render(); renderHistory(); } } catch(e){}
   renderMe();
+  const fromNotification = location.hash === "#activity";
+  if (fromNotification){ history.replaceState(null, "", location.pathname + location.search); openActivity(); }
   if (!sb){ setSave("", "Offline"); return; }
   const [cr, ir, hr, pr, ar] = await Promise.all([fetchCats(), fetchItems(), fetchSessions(), fetchProfiles(), fetchActivity()]);
   if (!pr.error){ setProfiles(pr.data); renderMe(); }
@@ -742,7 +747,7 @@ async function load(){
   if (!built || prevKey !== itemsKey()){ build(); selected = null; }
   if (!wasDirty) loadDay();
   render(); renderHistory(); cache(); setSave("saved", "Synced"); loaded = true;
-  if (!myProfile()) openProfile(); else showRecent();   // new visitors pick a name + avatar first
+  if (!myProfile()) openProfile(); else if (!fromNotification) showRecent();   // new visitors pick a name + avatar first
   const pg = (table, fn) => ["postgres_changes", { event: "*", schema: "public", table }, fn];
   sb.channel("purchases-live")
     .on(...pg("purchases_sessions", () => { if (!saving) refreshSessions(); }))

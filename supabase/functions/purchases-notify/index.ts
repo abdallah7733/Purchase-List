@@ -1,34 +1,68 @@
-// Sends a Web Push to every subscribed device (except the one that saved) when a day's list is confirmed.
-// Called by the purchases_sessions_notify trigger via pg_net. Keys live in purchases_private.push_config.
+// Sends a Web Push to every other subscribed device describing what someone changed, e.g.
+// "Mohammed added 3 items to your purchase list". Called by the purchases_activity_notify trigger via pg_net
+// with { activity_id }. Rapid edits are batched: each call waits for a quiet spell, and only the call for a
+// person's latest activity sends, rolling up everything they did since their last notification.
+// Keys live in purchases_private.push_config.
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
 import webpush from "npm:web-push@3.6.7";
+import { buildMessage, type Activity } from "./message.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false, max: 2 });
 
-function fmt(q: number) { return Number.isInteger(q) ? String(q) : q.toFixed(2).replace(/0+$/, "").replace(/\.$/, ""); }
+const QUIET_MS = 30_000;          // wait this long after a change for more changes from the same person
+const MAX_WAIT_MS = 3 * 60_000;   // but never hold a notification longer than this while they keep editing
+const LOOKBACK = "15 minutes";    // ignore anything older (a missed or first-ever batch never dumps old history)
+const NO_PROFILE = "00000000-0000-0000-0000-000000000000";
+const TZ = "Africa/Cairo";
 
-Deno.serve(async (req) => {
-  const [cfg] = await sql`select vapid_public, vapid_private, subject, hook_secret from purchases_private.push_config where id`;
-  if (!cfg || req.headers.get("x-hook-secret") !== cfg.hook_secret) return new Response("forbidden", { status: 403 });
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  const { day } = await req.json().catch(() => ({}));
-  const [s] = await sql`select s.day::text as day, s.items, s.saved_by, p.name as who
-    from public.purchases_sessions s left join public.purchases_profiles p on p.id = s.saved_by_profile where s.day = ${day}`;
-  if (!s) return new Response("no session", { status: 200 });
+async function handle(activityId: number) {
+  await sleep(QUIET_MS);
 
-  const items = (s.items as { item_id: string; qty: number; unit: string }[]) || [];
+  const [a] = await sql`select id, coalesce(profile_id, ${NO_PROFILE}::uuid) as actor, profile_id
+    from public.purchases_activity where id = ${activityId}`;
+  if (!a) return;
+
+  // A newer change by the same person will send the batch, unless they've been at it too long already.
+  const [state] = await sql`select max(id) as newest, min(at) filter (where id > coalesce(s.last_id, 0)) as oldest
+    from public.purchases_activity
+    left join purchases_private.push_sent s on s.actor = ${a.actor}::uuid
+    where coalesce(profile_id, ${NO_PROFILE}::uuid) = ${a.actor}::uuid and at > now() - ${LOOKBACK}::interval`;
+  const newest = Number(state.newest);
+  if (newest > Number(a.id) && Date.now() - new Date(state.oldest).getTime() < MAX_WAIT_MS) return;
+
+  // Claim the batch (previous watermark, newest] so overlapping calls never send it twice.
+  const rows = await sql.begin(async (tx) => {
+    await tx`insert into purchases_private.push_sent (actor, last_id) values (${a.actor}::uuid, 0) on conflict (actor) do nothing`;
+    const [{ last_id }] = await tx`select last_id from purchases_private.push_sent where actor = ${a.actor}::uuid for update`;
+    if (Number(last_id) >= newest) return [];
+    await tx`update purchases_private.push_sent set last_id = ${newest}, sent_at = now() where actor = ${a.actor}::uuid`;
+    return await tx`select id, kind, day::text as day, details from public.purchases_activity
+      where coalesce(profile_id, ${NO_PROFILE}::uuid) = ${a.actor}::uuid and id > ${last_id} and id <= ${newest}
+        and at > now() - ${LOOKBACK}::interval order by id`;
+  });
+  if (!rows.length) return;
+
+  const ids = new Set<string>();
+  for (const r of rows) for (const c of (r.details?.changes ?? [])) ids.add(c.item_id);
   const names = new Map<string, string>();
-  if (items.length) (await sql`select id, name from public.purchases_items where id = any(${items.map(i => i.item_id)})`).forEach(r => names.set(r.id, r.name));
-  const [y, m, d] = s.day.split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
-  const list = items.slice(0, 3).map(i => `${names.get(i.item_id) ?? i.item_id} (${fmt(Number(i.qty))} ${i.unit})`).join(", ");
-  const body = items.length
-    ? `${date} · ${items.length} ${items.length === 1 ? "item" : "items"}: ${list}${items.length > 3 ? ` +${items.length - 3} more` : ""}`
-    : `${date} · list cleared`;
-  const payload = JSON.stringify({ title: s.who ? `${s.who} saved the list` : "Purchases List updated", body, day: s.day });
+  if (ids.size) (await sql`select id, name from public.purchases_items where id = any(${[...ids]})`).forEach((r) => names.set(r.id, r.name));
+  const [p] = a.profile_id ? await sql`select name from public.purchases_profiles where id = ${a.profile_id}` : [];
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
 
+  const msg = buildMessage(p?.name ?? null, rows as unknown as Activity[], names, today);
+  if (!msg) return;
+  const payload = JSON.stringify({ ...msg, tag: `purchases-${newest}`, url: "/#activity" });
+
+  const [cfg] = await sql`select vapid_public, vapid_private, subject from purchases_private.push_config where id`;
   webpush.setVapidDetails(cfg.subject, cfg.vapid_public, cfg.vapid_private);
-  const subs = await sql`select endpoint, p256dh, auth from purchases_private.push_subs where device_id is distinct from ${s.saved_by}`;
+  // Skip the person who made the change: by profile, or for older subscriptions without one, by the devices they saved from.
+  const subs = await sql`select endpoint, p256dh, auth from purchases_private.push_subs
+    where ${a.profile_id}::uuid is null or (profile_id is distinct from ${a.profile_id}::uuid
+      and (profile_id is not null or device_id is null or device_id not in (
+        select saved_by from public.purchases_sessions where saved_by_profile = ${a.profile_id}::uuid and saved_by is not null)))`;
   let sent = 0, removed = 0;
   await Promise.all(subs.map(async (sub) => {
     try {
@@ -40,5 +74,18 @@ Deno.serve(async (req) => {
       else console.error("push failed", code, (e as Error).message);
     }
   }));
-  return Response.json({ sent, removed, total: subs.length });
+  console.log("notified", { actor: a.actor, through: newest, activities: rows.length, sent, removed, total: subs.length });
+}
+
+Deno.serve(async (req) => {
+  const [cfg] = await sql`select hook_secret from purchases_private.push_config where id`;
+  if (!cfg || req.headers.get("x-hook-secret") !== cfg.hook_secret) return new Response("forbidden", { status: 403 });
+
+  const { activity_id } = await req.json().catch(() => ({}));
+  const id = Number(activity_id);
+  if (!Number.isSafeInteger(id) || id <= 0) return new Response("ignored", { status: 200 });   // e.g. the old { day } payload
+
+  // Answer pg_net right away; the batching wait runs in the background.
+  EdgeRuntime.waitUntil(handle(id).catch((e) => console.error("notify failed", (e as Error).message)));
+  return new Response("queued", { status: 202 });
 });
