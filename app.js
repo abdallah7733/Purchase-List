@@ -343,6 +343,7 @@ function latest(){   // item_id -> [latest entry, previous entry]
 }
 function renderHistory(){
   if (!built) return;
+  shopRefresh();
   const body = $("#histBody"), days = sessions.filter(s => s.items.length);
   $("#histMeta").textContent = days.length ? `${days.length} ${days.length === 1 ? "day" : "days"} saved.` : "Nothing saved yet.";
   $(".seg").dataset.sel = histTab;
@@ -442,7 +443,7 @@ $("#resetForm").addEventListener("submit", async e => {
   go.disabled = false;
   if (error){ fb.error(); $("#resetErr").textContent = /locked/.test(error.message) ? "Too many wrong tries. Wait 15 minutes." : "Couldn't reset. Check your connection."; return; }
   if (data < 0){ fb.error(); $("#resetErr").textContent = "Wrong passcode."; $("#passcode").select(); return; }
-  editDay = null; todayStash = null; sessions = []; stock = {}; openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close(); refreshActivity();
+  editDay = null; todayStash = null; sessions = []; stock = {}; try { localStorage.removeItem(TICKS_KEY); } catch(e){} openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close(); refreshActivity();
   fb.success(); toast("History reset.");
 });
 
@@ -652,6 +653,7 @@ menu.addEventListener("click", e => {
     else if (g === "cats") go("catsBlock");
     else if (g === "export") exportCsv();
     else if (g === "reset") openReset();
+    else if (g === "shop") openShop();
   }, 280);
 });
 function cancelEdit(){ fb.tap(); const changed = isDirty(); stopEdit(); toast(changed ? "Changes discarded." : "Stopped editing."); }
@@ -718,6 +720,118 @@ function exportCsv(){
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   toast("Exported. Open the CSV in Numbers.");
 }
+
+/* ---------- shopping list: every item counted since the last Full Reset, with its latest amount left ---------- */
+const shopDlg = $("#shopDlg"), TICKS_KEY = "purchases-shop-ticks";
+const periodStart = () => { const d = sessions.filter(s => s.items.length); return d.length ? d[d.length - 1].day : null; };
+// Ticks live on this phone only, and only for the current period (a reset starts a fresh list).
+function loadTicks(){ try { const t = JSON.parse(localStorage.getItem(TICKS_KEY) || "null"); if (t && t.start === periodStart()) return new Set(t.ids); } catch(e){} return new Set(); }
+function saveTicks(t){ try { localStorage.setItem(TICKS_KEY, JSON.stringify({ start: periodStart(), ids: [...t] })); } catch(e){} }
+let ticks = new Set(), shopPdfFile = null;
+function shopRows(){   // [{title, hue, rows:[{id, name, left, prev, used, out}]}]: items at 0 first, then by category
+  const t = latest(), out = [], groups = new Map(CATS.map(c => [c.id, []]));
+  ITEMS.filter(i => t[i.id]).sort((a, b) => a.no - b.no).forEach(i => {
+    const [left, prev] = t[i.id], used = prev && prev.unit === left.unit && prev.qty > left.qty ? Math.round((prev.qty - left.qty) * 100) / 100 : 0;
+    const r = { id: i.id, name: i.name, hue: hueOf(i.cat), left, prev, used, out: left.qty === 0 };
+    (r.out ? out : groups.get(i.cat) || out).push(r);
+  });
+  const g = CATS.filter(c => groups.get(c.id).length).map(c => ({ title: c.name, hue: c.hue, rows: groups.get(c.id) }));
+  return out.length ? [{ title: "Out", hue: "#E30000", out: true, rows: out }, ...g] : g;
+}
+const shopSub = r => `Counted ${shortDay(r.left.day)}${r.used ? ` · used ${fmt(r.used)} ${r.left.unit}` : r.prev && r.prev.unit === r.left.unit && r.prev.qty < r.left.qty ? ` · was ${qtyTxt(r.prev)}` : ""}`;
+function renderShop(){
+  const groups = shopRows(), n = groups.reduce((a, g) => a + g.rows.length, 0), start = periodStart();
+  ticks = new Set([...loadTicks()].filter(id => groups.some(g => g.rows.some(r => r.id === id))));
+  const outN = groups[0] && groups[0].out ? groups[0].rows.length : 0;
+  $("#shopMeta").textContent = n ? `Since ${longDate(start)} · ${n} ${n === 1 ? "item" : "items"}${outN ? ` · ${outN} out` : ""}` : "Nothing counted since the last reset.";
+  $("#shopPdf").disabled = !n; $("#shopClear").hidden = !ticks.size;
+  $("#shopBody").innerHTML = n ? groups.map(g => `<section class="shop-cat${g.out ? " is-out" : ""}"><h3><i class="dot" style="--hue:${esc(g.hue)}"></i>${esc(g.title)}<span>${g.rows.length}</span></h3>
+    <ul>${g.rows.map(r => `<li class="shop-item${ticks.has(r.id) ? " ticked" : ""}" data-id="${esc(r.id)}"><button type="button" class="tick" role="checkbox" aria-checked="${ticks.has(r.id)}" aria-label="${esc(r.name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></button>
+      <span class="si-t"><span class="si-name" dir="auto">${esc(r.name)}</span><span class="si-sub">${esc(shopSub(r))}</span></span><b class="si-left${r.out ? " out" : ""}">${r.out ? "Out" : esc(qtyTxt(r.left))}</b></li>`).join("")}</ul></section>`).join("")
+    : `<p class="hist-empty">Count items and press <b>Confirm</b>.<br>Everything you count shows up here until the next Full Reset.</p>`;
+}
+function shopRefresh(){ if (shopDlg.open){ shopPdfFile = null; renderShop(); } }
+function openShop(){ shopPdfFile = null; renderShop(); shopDlg.showModal(); $("#shopBody").scrollTop = 0; loadPdfLibs().catch(() => {}); }
+$("#shopDone").onclick = () => { fb.tap(); shopDlg.close(); };
+$("#shopBody").addEventListener("click", e => {
+  const li = e.target.closest(".shop-item"); if (!li) return; const id = li.dataset.id;
+  ticks.has(id) ? ticks.delete(id) : ticks.add(id); saveTicks(ticks); shopPdfFile = null;
+  const on = ticks.has(id); li.classList.toggle("ticked", on); li.querySelector(".tick").setAttribute("aria-checked", on);
+  $("#shopClear").hidden = !ticks.size; on ? fb.success() : fb.tap();
+});
+$("#shopClear").onclick = () => { fb.tap(); ticks.clear(); saveTicks(ticks); shopPdfFile = null; renderShop(); };
+
+/* PDF: each A4 page is laid out as HTML (so Arabic names render correctly), drawn to an image, then put in a PDF. */
+let pdfLibs = null;
+function loadScript(src){ return new Promise((ok, no) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); }); }
+function loadPdfLibs(){
+  pdfLibs = pdfLibs || Promise.all([
+    window.html2canvas || loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
+    window.jspdf || loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js")]).catch(e => { pdfLibs = null; throw e; });
+  return pdfLibs;
+}
+async function buildPdf(){
+  await loadPdfLibs();
+  const groups = shopRows(), n = groups.reduce((a, g) => a + g.rows.length, 0), today = dayKey();
+  const root = document.createElement("div"); root.className = "pdf-root"; document.body.appendChild(root);
+  const head = `<tr><th class="c-tick"></th><th>Item</th><th class="c-left">Left</th><th>Last counted</th><th class="c-used">Used since previous</th></tr>`;
+  const pages = [];
+  const newPage = first => {
+    const p = document.createElement("div"); p.className = "pdf-page";
+    p.innerHTML = (first ? `<header><p class="eyebrow">Purchases List</p><h1>Shopping list</h1>
+      <p class="sub">Since ${esc(longDate(periodStart()))} to ${esc(longDate(today))} · ${n} ${n === 1 ? "item" : "items"}</p></header>` : "")
+      + `<table><thead>${head}</thead><tbody></tbody></table><footer></footer>`;
+    root.appendChild(p); pages.push(p); return p.querySelector("tbody");
+  };
+  const fits = tb => tb.closest(".pdf-page").querySelector("table").getBoundingClientRect().bottom <= tb.closest(".pdf-page").getBoundingClientRect().top + 1123 - 64;
+  let tb = newPage(true);
+  const add = (html, title) => {
+    tb.insertAdjacentHTML("beforeend", html);
+    if (fits(tb)) return;
+    tb.lastElementChild.remove(); tb = newPage(false);
+    if (title) tb.insertAdjacentHTML("beforeend", title);
+    tb.insertAdjacentHTML("beforeend", html);
+  };
+  groups.forEach(g => {
+    const cat = `<tr class="pcat${g.out ? " out" : ""}"><td colspan="5"><i style="background:${esc(g.hue)}"></i>${esc(g.title)}</td></tr>`;
+    add(cat); const contd = cat.replace("</td>", " (continued)</td>");
+    g.rows.forEach(r => add(`<tr class="row${ticks.has(r.id) ? " ticked" : ""}"><td class="c-tick"><span class="box">${ticks.has(r.id) ? "✓" : ""}</span></td><td dir="auto">${esc(r.name)}</td>
+      <td class="c-left${r.out ? " out" : ""}">${r.out ? "Out" : esc(qtyTxt(r.left))}</td><td>${esc(longDate(r.left.day))}</td><td class="c-used">${r.used ? esc(`${fmt(r.used)} ${r.left.unit}`) : "–"}</td></tr>`, contd));
+  });
+  pages.forEach((p, k) => { p.querySelector("footer").textContent = `Exported ${longDate(today)} · Page ${k + 1} of ${pages.length}`; });
+  try {
+    const pdf = new window.jspdf.jsPDF({ unit: "pt", format: "a4", compress: true });
+    for (let k = 0; k < pages.length; k++){
+      const c = await window.html2canvas(pages[k], { scale: 2, backgroundColor: "#ffffff", logging: false, width: 794, height: 1123, windowWidth: 794 });
+      if (k) pdf.addPage();
+      pdf.addImage(c.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 595.28, 841.89);
+    }
+    return new File([pdf.output("blob")], `Shopping list ${today}.pdf`, { type: "application/pdf" });
+  } finally { root.remove(); }
+}
+async function sharePdf(){
+  const btn = $("#shopPdf"), lbl = btn.querySelector("span");
+  if (btn.disabled) return; fb.tap();
+  if (!shopPdfFile){
+    btn.disabled = true; lbl.textContent = "Preparing…";
+    try { shopPdfFile = await buildPdf(); }
+    catch(e){ btn.disabled = false; lbl.textContent = "Share PDF"; fb.error(); toast("Couldn't make the PDF. Check your connection."); return; }
+    btn.disabled = false;
+  }
+  const f = shopPdfFile;
+  if (navigator.canShare && navigator.canShare({ files: [f] })){
+    try { await navigator.share({ files: [f], title: "Shopping list" }); lbl.textContent = "Share PDF"; return; }
+    catch(e){
+      if (e.name === "AbortError"){ lbl.textContent = "Share PDF"; return; }
+      if (e.name === "NotAllowedError"){ lbl.textContent = "PDF ready · Tap to share"; return; }   // iOS wants a fresh tap after a slow build
+    }
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  lbl.textContent = "Share PDF"; toast("PDF saved.");
+}
+$("#shopPdf").onclick = sharePdf;
+shopDlg.addEventListener("close", () => { $("#shopPdf span").textContent = "Share PDF"; });
 
 /* ---------- load ---------- */
 function apply(cats, items){

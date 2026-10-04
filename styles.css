@@ -338,3 +338,62 @@ img.av{box-shadow:0 0 0 .5px rgba(0,0,0,.1)}
 .day.editing{border-color:var(--blue)}
 .cb-cancel{flex:none;font-size:15px;color:var(--text-2);padding:0 2px}
 .confirm-bar.editing .pill{min-width:92px}
+
+/* ---------- shopping list sheet ---------- */
+.dlg.shop{display:none;flex-direction:column;width:min(560px,calc(100% - 32px));height:min(860px,calc(100% - 40px));padding:0;overflow:hidden}
+.dlg.shop[open]{display:flex}
+.shop-head{padding:22px 22px 12px;border-bottom:1px solid var(--hair)}
+.dlg .shop-meta{margin:0;font-size:15px}
+.shop-head h2{margin-bottom:4px}
+.shop-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:6px 16px 12px}
+.shop-body .hist-empty{padding:28px 6px;text-align:center}
+.shop-cat h3{display:flex;align-items:center;margin:16px 6px 8px;font-size:13px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--text-2)}
+.shop-cat h3 span{margin-left:auto;font-weight:500;color:var(--text-3);font-variant-numeric:tabular-nums}
+.shop-cat.is-out h3{color:var(--red)}
+.shop-cat ul{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.shop-item{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 14px 8px 10px;border-top:1px solid var(--hair);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .2s var(--ease)}
+.shop-item:first-child{border-top:0}
+.shop-item:active{background:var(--bg-alt)}
+.shop-item .tick{all:unset;box-sizing:border-box;flex:none;display:grid;place-items:center;width:44px;height:44px;margin:-4px -6px -4px -4px;cursor:pointer}
+.shop-item .tick::before{content:"";grid-area:1/1;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--text-3);transition:background .2s var(--ease),border-color .2s var(--ease)}
+.shop-item .tick svg{grid-area:1/1;width:14px;height:14px;color:#fff;opacity:0;transform:scale(.6);transition:opacity .2s var(--ease),transform .25s var(--ease-out)}
+.shop-item.ticked .tick::before{background:var(--green);border-color:var(--green)}
+.shop-item.ticked .tick svg{opacity:1;transform:none}
+.si-t{flex:1;min-width:0;display:flex;flex-direction:column}
+.si-name{text-align:left;font-size:17px;letter-spacing:-.022em;color:var(--text);transition:color .2s}
+.si-sub{font-size:13px;color:var(--text-3);margin-top:1px}
+.si-left{flex:none;font-size:17px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.si-left.out{font-size:13px;font-weight:600;padding:3px 10px;border-radius:980px;background:rgba(227,0,0,.08);color:var(--red)}
+.shop-item.ticked .si-name{color:var(--text-3);text-decoration:line-through}
+.shop-item.ticked .si-left{opacity:.4}
+.shop-foot{padding:10px 22px calc(18px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--hair);background:rgba(255,255,255,.92)}
+.shop-clear{display:flex;margin:-4px auto 6px;font-size:15px;min-height:36px}
+.shop-foot .pill svg{width:18px;height:18px}
+@media (max-width:733px){
+  .dlg.shop{width:100%;max-width:100%;height:calc(100% - 44px - env(safe-area-inset-top,0px));max-height:none;margin:auto 0 0;border-radius:24px 24px 0 0}
+}
+
+/* PDF pages: laid out off-screen at A4 size (794 x 1123 CSS px), then drawn into the PDF */
+.pdf-root{position:fixed;left:-10000px;top:0;pointer-events:none}
+.pdf-root *{letter-spacing:normal!important}   /* html2canvas draws spaced text letter by letter, which breaks Arabic */
+.pdf-page td[dir]{text-align:left}
+.pdf-page{position:relative;box-sizing:border-box;width:794px;height:1123px;padding:56px 56px 64px;background:#fff;color:#1D1D1F;font-family:var(--font);overflow:hidden}
+.pdf-page header{margin-bottom:22px}
+.pdf-page .eyebrow{margin:0 0 6px;font-size:12px;font-weight:600;text-transform:uppercase;color:#0071E3}
+.pdf-page h1{margin:0 0 6px;font-size:34px;line-height:1.1;font-weight:600}
+.pdf-page .sub{margin:0;font-size:15px;color:#6E6E73}
+.pdf-page table{width:100%;border-collapse:collapse;font-size:14px}
+.pdf-page th{padding:0 8px 8px;font-size:11px;font-weight:600;text-transform:uppercase;color:#86868B;text-align:left;border-bottom:1px solid #D2D2D7}
+.pdf-page td{padding:9px 8px;border-bottom:1px solid #E8E8ED;vertical-align:middle}
+.pdf-page .c-tick{width:22px;padding-left:2px;padding-right:4px}
+.pdf-page .box{display:inline-block;width:14px;height:14px;line-height:14px;text-align:center;border:1.4px solid #86868B;border-radius:3px;font-size:11px;font-weight:700;color:#34C759}
+.pdf-page .c-left{text-align:right;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.pdf-page th.c-left{text-align:right}
+.pdf-page .c-left.out{color:#E30000}
+.pdf-page .c-used{text-align:right;color:#6E6E73;white-space:nowrap}
+.pdf-page td:nth-child(4){color:#6E6E73;white-space:nowrap}
+.pdf-page tr.pcat td{padding:18px 2px 6px;border-bottom:1px solid #D2D2D7;font-size:12px;font-weight:600;text-transform:uppercase;color:#6E6E73}
+.pdf-page tr.pcat.out td{color:#E30000}
+.pdf-page tr.pcat i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
+.pdf-page tr.ticked td:nth-child(2){color:#86868B;text-decoration:line-through}
+.pdf-page footer{position:absolute;left:56px;right:56px;bottom:28px;font-size:11px;color:#86868B;text-align:center}
