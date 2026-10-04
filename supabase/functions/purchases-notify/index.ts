@@ -66,9 +66,9 @@ async function handle(activityId: number) {
   let sent = 0, removed = 0;
   await Promise.all(subs.map(async (sub) => {
     try {
-      // web-push builds the encrypted request; it's sent with fetch because web-push's own Node HTTP call
-      // gets a 400 from Apple's push service under Deno.
-      const req = webpush.generateRequestDetails({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload, { TTL: 86400, urgency: "normal", topic: "purchases" });
+      // web-push builds the encrypted request and fetch sends it, so the push service's reason shows up in the logs.
+      // No Topic header: Apple rejects it with 400 BadWebPushTopic.
+      const req = webpush.generateRequestDetails({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload, { TTL: 86400, urgency: "normal" });
       const headers = Object.fromEntries(Object.entries(req.headers).filter(([k]) => k.toLowerCase() !== "content-length").map(([k, v]) => [k, String(v)]));
       const res = await fetch(req.endpoint, { method: req.method, headers, body: req.body });
       if (res.ok) { sent++; await res.body?.cancel(); return; }
