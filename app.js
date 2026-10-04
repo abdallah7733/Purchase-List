@@ -219,7 +219,7 @@ function render(changed){
   $("#todayLbl").textContent = longDate(activeDay());
   $("#heroSub").textContent = editDay ? `Editing ${longDate(editDay)}.` : "Pick today's items.";
   $("#editBanner").hidden = !editDay; $("#editDayLbl").textContent = editDay ? longDate(editDay) : "";
-  renderConfirm(filledTotal);
+  renderConfirm(filledTotal); renderNow();
 }
 
 let justSaved = false, justSavedT;
@@ -324,9 +324,17 @@ const itemHistory = (id, before) => sessions.filter(s => !before || s.day < befo
 const qtyTxt = r => `${fmt(r.qty)} ${r.unit}`;
 function itemHistHtml(id){
   const h = itemHistory(id, activeDay()), last = h[0];
-  if (!last) return `<div class="item-hist"><p class="ih-last">First time recording ${esc(byId[id].name)}.</p></div>`;
-  return `<div class="item-hist"><p class="ih-last">Last recorded <b>${esc(qtyTxt(last))}</b> · ${esc(shortDay(last.day))}</p>${h.length > 1 ? `
+  if (!last) return `<div class="item-hist"><p class="ih-last">First time counting ${esc(byId[id].name)}.</p></div>`;
+  return `<div class="item-hist"><p class="ih-last">You had <b>${esc(qtyTxt(last))}</b> left · ${esc(shortDay(last.day))}</p><p class="ih-now" hidden></p>${h.length > 1 ? `
     <ul class="ih-list" aria-label="Earlier entries">${h.slice(1, 6).map(r => `<li><span>${esc(shortDay(r.day))}</span><b>${esc(qtyTxt(r))}</b></li>`).join("")}</ul>` : ""}</div>`;
+}
+// Live line under "You had …": what's left now and the change since the last count.
+function renderNow(){
+  const el = picker && picker.li.querySelector(".ih-now"); if (!el) return;
+  const last = itemHistory(picker.id, activeDay())[0], s = stock[picker.id];
+  el.hidden = !s || !last; if (el.hidden) return;
+  const d = Math.round((s.qty - last.qty) * 100) / 100;
+  el.innerHTML = `Now <b>${esc(qtyTxt(s))}</b>` + (s.unit !== last.unit ? "" : d < 0 ? ` · used ${esc(fmt(-d))} ${esc(s.unit)}` : d > 0 ? ` · ${esc(fmt(d))} ${esc(s.unit)} more` : " · no change");
 }
 function latest(){   // item_id -> [latest entry, previous entry]
   const t = {};
@@ -351,8 +359,8 @@ function renderHistory(){
           <div class="day-acts"><button class="pill outline small edit-day" type="button" data-day="${s.day}"${s.day === editDay ? " disabled" : ""}>${s.day === editDay ? "Editing now" : "Edit this day"}</button></div></div></div></div>`; }).join("");
   } else {
     const t = latest();
-    body.innerHTML = `<p class="hist-note">Each item once, with its most recent amount.</p>
-      <table class="htable totals"><thead><tr><th>Item</th><th>Latest</th></tr></thead><tbody>${ITEMS.filter(i => t[i.id]).map(i => { const [l, p] = t[i.id];
+    body.innerHTML = `<p class="hist-note">What's at home now: each item's latest count.</p>
+      <table class="htable totals"><thead><tr><th>Item</th><th>Left</th></tr></thead><tbody>${ITEMS.filter(i => t[i.id]).map(i => { const [l, p] = t[i.id];
         return itemRow(i.id, `${esc(qtyTxt(l))}<span class="when">${esc(shortDay(l.day))}${p ? ` · was ${esc(qtyTxt(p))}` : ""}</span>`); }).join("")}</tbody></table>`;
   }
 }
