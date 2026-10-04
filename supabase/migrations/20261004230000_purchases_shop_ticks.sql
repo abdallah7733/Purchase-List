@@ -21,6 +21,11 @@ exception when duplicate_object then null; end $$;
 
 -- Order categories appear in on the shopping list (null = same as the main list).
 alter table public.purchases_categories add column if not exists shop_sort smallint;
+-- Abdallah's walk through the market (2026-10-04): Beverages, Sweeteners, Oils, Personal Care, Cleaning, Paper,
+-- Grains, Spices, Dairy, Meat, Frozen.
+update public.purchases_categories c set shop_sort = o.n
+  from (values (5,1),(4,2),(2,3),(8,4),(6,5),(7,6),(1,7),(3,8),(10,9),(9,10),(11,11)) as o(id, n)
+ where c.id = o.id;
 
 -- Full Reset also clears the ticks.
 create or replace function public.purchases_reset_history(passcode text, p_profile uuid default null)

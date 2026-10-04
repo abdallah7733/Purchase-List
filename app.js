@@ -739,7 +739,10 @@ async function setTick(id, on){
   const q = sb.from("purchases_shop_ticks"), { error } = on ? await q.upsert({ item_id: id, ticked_by: myProfile() ? me.id : null }) : await q.delete().eq("item_id", id);
   if (error){ fb.error(); toast("Couldn't save the tick. Check your connection."); refreshTicks(); }
 }
-const shopCats = () => CATS.slice().sort((a, b) => (a.shop_sort ?? a.sort ?? 0) - (b.shop_sort ?? b.sort ?? 0) || (a.sort ?? 0) - (b.sort ?? 0));
+// Market-walk order (category ids), used until purchases_categories.shop_sort is filled in; new categories go last.
+const SHOP_ORDER = [5, 4, 2, 8, 6, 7, 1, 3, 10, 9, 11];
+const shopRank = c => c.shop_sort ?? (SHOP_ORDER.includes(c.id) ? SHOP_ORDER.indexOf(c.id) + 1 : 100 + (c.sort ?? 0));
+const shopCats = () => CATS.slice().sort((a, b) => shopRank(a) - shopRank(b));
 function shopRows(){   // [{title, hue, rows:[{id, name, left, prev, used, zero}]}] in market-walk category order
   const t = latest(), groups = new Map(CATS.map(c => [c.id, []]));
   ITEMS.filter(i => t[i.id] && groups.has(i.cat)).sort((a, b) => a.no - b.no).forEach(i => {
