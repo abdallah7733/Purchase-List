@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Purchases List</title>
-<meta name="description" content="Home purchases list: pick items, confirm by date, and see history and totals.">
+<meta name="description" content="Home purchases list: pick items, confirm by date, and see history and what is left of each item.">
 <meta name="theme-color" content="#F5F5F7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -33,7 +33,7 @@
 <nav class="menu" id="menu" aria-label="Menu" aria-hidden="true" inert>
   <ul class="menu-main">
     <li><button type="button" data-go="history">History</button></li>
-    <li><button type="button" data-go="totals">Totals</button></li>
+    <li><button type="button" data-go="totals">In stock</button></li>
     <li><button type="button" data-go="activity">Activity</button></li>
     <li><button type="button" data-go="cats">Categories</button></li>
     <li><button type="button" data-go="add">Add item</button></li>
@@ -65,7 +65,7 @@
       <h2 class="headline" id="histTitle">History. <span id="histMeta">Loading.</span></h2>
       <div class="seg" role="tablist" aria-label="History view" data-sel="dates">
         <button type="button" role="tab" data-tab="dates" aria-selected="true">By date</button>
-        <button type="button" role="tab" data-tab="totals" aria-selected="false">Totals</button>
+        <button type="button" role="tab" data-tab="totals" aria-selected="false">In stock</button>
         <button type="button" role="tab" data-tab="activity" aria-selected="false">Activity</button>
       </div>
     </div>
@@ -106,7 +106,7 @@
 <dialog class="dlg" id="resetDlg" aria-labelledby="resetTitle">
   <form id="resetForm" method="dialog">
     <h2 id="resetTitle">Reset all history?</h2>
-    <p>This deletes every saved date, so the totals go back to zero. You can't undo it.</p>
+    <p>This deletes every saved date and all item history. You can't undo it.</p>
     <label class="fld"><span>Admin passcode</span><input id="passcode" type="password" inputmode="numeric" autocomplete="off" enterkeyhint="done"></label>
     <p class="err" id="resetErr" role="alert"></p>
     <div class="dlg-btns"><button class="pill outline" id="resetCancel" type="button">Cancel</button><button class="pill danger" id="resetGo" type="submit">Reset</button></div>
