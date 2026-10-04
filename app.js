@@ -351,7 +351,6 @@ function renderHistory(){
   if (histTab === "activity"){ renderActivity(body); return; }
   if (!days.length){ body.innerHTML = `<p class="hist-empty">Pick items and press <b>Confirm</b>.<br>Each day's list shows up here.</p>`; return; }
   if (histTab === "dates"){
-    if (!openDays.size) openDays.add(days[0].day);
     body.innerHTML = days.map(s => { const open = openDays.has(s.day), rows = s.items.filter(r => byId[r.item_id]).sort((a, b) => byId[a.item_id].no - byId[b.item_id].no);
       const by = s.updated_at ? `<span class="day-by">${s.saved_by_profile ? `Saved by ${esc(whoName(s.saved_by_profile))} · ` : "Saved "}${esc(timeOf(s.updated_at))}</span>` : "";
       return `<div class="day${open ? " open" : ""}${s.day === editDay ? " editing" : ""}" data-day="${s.day}">
