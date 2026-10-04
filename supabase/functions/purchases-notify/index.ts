@@ -66,12 +66,17 @@ async function handle(activityId: number) {
   let sent = 0, removed = 0;
   await Promise.all(subs.map(async (sub) => {
     try {
-      await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload, { TTL: 86400, urgency: "normal", topic: "purchases" });
-      sent++;
+      // web-push builds the encrypted request and fetch sends it, so the push service's reason shows up in the logs.
+      // No Topic header: Apple rejects it with 400 BadWebPushTopic.
+      const req = webpush.generateRequestDetails({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload, { TTL: 86400, urgency: "normal" });
+      const headers = Object.fromEntries(Object.entries(req.headers).filter(([k]) => k.toLowerCase() !== "content-length").map(([k, v]) => [k, String(v)]));
+      const res = await fetch(req.endpoint, { method: req.method, headers, body: req.body });
+      if (res.ok) { sent++; await res.body?.cancel(); return; }
+      const why = await res.text();
+      if (res.status === 404 || res.status === 410) { await sql`delete from purchases_private.push_subs where endpoint = ${sub.endpoint}`; removed++; }
+      else console.error("push failed", res.status, why);
     } catch (e) {
-      const code = (e as { statusCode?: number }).statusCode;
-      if (code === 404 || code === 410) { await sql`delete from purchases_private.push_subs where endpoint = ${sub.endpoint}`; removed++; }
-      else console.error("push failed", code, (e as Error).message);
+      console.error("push failed", (e as Error).message);
     }
   }));
   console.log("notified", { actor: a.actor, through: newest, activities: rows.length, sent, removed, total: subs.length });
