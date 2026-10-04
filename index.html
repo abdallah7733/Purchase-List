@@ -32,6 +32,7 @@
 
 <nav class="menu" id="menu" aria-label="Menu" aria-hidden="true" inert>
   <ul class="menu-main">
+    <li><button type="button" data-go="shop">Shopping list</button></li>
     <li><button type="button" data-go="history">History</button></li>
     <li><button type="button" data-go="totals">In stock</button></li>
     <li><button type="button" data-go="activity">Activity</button></li>
@@ -111,6 +112,19 @@
     <p class="err" id="resetErr" role="alert"></p>
     <div class="dlg-btns"><button class="pill outline" id="resetCancel" type="button">Cancel</button><button class="pill danger" id="resetGo" type="submit">Reset</button></div>
   </form>
+</dialog>
+
+<dialog class="dlg sheet shop" id="shopDlg" aria-labelledby="shopTitle">
+  <div class="shop-head">
+    <p class="eyebrow">Shopping list</p>
+    <h2 id="shopTitle">What's left at home.</h2>
+    <p class="shop-meta" id="shopMeta"></p>
+  </div>
+  <div class="shop-body" id="shopBody"></div>
+  <div class="shop-foot">
+    <button class="linkbtn shop-clear" id="shopClear" type="button" hidden>Clear ticks</button>
+    <div class="dlg-btns"><button class="pill outline" id="shopDone" type="button">Done</button><button class="pill primary" id="shopPdf" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4m-4 4 4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-1"/></svg><span>Share PDF</span></button></div>
+  </div>
 </dialog>
 
 <dialog class="dlg sheet" id="profileDlg" aria-labelledby="pfTitle">
