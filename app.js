@@ -293,7 +293,7 @@ function mountPicker(li){
   const id = li.dataset.id, s = stock[id], unit = s ? s.unit : byId[id].unit;
   if (picker && picker.li !== li){ const old = picker.li.querySelector(".picker-slot"); setTimeout(() => { if (!picker || picker.li !== old.closest(".item")) old.innerHTML = ""; }, 500); }
   const slot = li.querySelector(".picker-slot");
-  slot.innerHTML = `<div class="picker"><div class="band"></div><div class="wheel" role="listbox" aria-label="Quantity"></div><div class="wheel" role="listbox" aria-label="Unit"></div></div>
+  slot.innerHTML = `${itemHistHtml(id)}<div class="picker"><div class="band"></div><div class="wheel" role="listbox" aria-label="Quantity"></div><div class="wheel" role="listbox" aria-label="Unit"></div></div>
     <div class="type-row" hidden><input class="type-in" type="number" inputmode="decimal" min="0" max="100000" step="any" placeholder="Amount" aria-label="Type amount for ${esc(byId[id].name)}"><span class="type-unit">${esc(unit)}</span></div>
     <div class="picker-foot"><button class="linkbtn clear" type="button">Clear</button><button class="linkbtn type" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>Type amount</button><button class="linkbtn done" type="button">Done</button></div>`;
   const [qEl, uEl] = slot.querySelectorAll(".wheel");
@@ -318,10 +318,19 @@ function selectItem(id){
 function itemRow(id, qtyText){
   return `<tr><td><i class="dot" style="--hue:${esc(hueOf(byId[id].cat))}"></i>${esc(byId[id].name)}</td><td>${qtyText}</td></tr>`;
 }
-function totals(){
-  // item_id -> unit -> sum. Different units for the same item stay separate (2 kg + 500 g).
+/* Each saved amount is what's at home that day, so an item's latest entry replaces the earlier ones (1 L, then 0.5 L = 0.5 L). */
+const itemHistory = (id, before) => sessions.filter(s => !before || s.day < before).flatMap(s => {   // newest first
+  const r = s.items.find(r => r.item_id === id); return r ? [{ day: s.day, qty: Number(r.qty), unit: r.unit }] : []; });
+const qtyTxt = r => `${fmt(r.qty)} ${r.unit}`;
+function itemHistHtml(id){
+  const h = itemHistory(id, activeDay()), last = h[0];
+  if (!last) return `<div class="item-hist"><p class="ih-last">First time recording ${esc(byId[id].name)}.</p></div>`;
+  return `<div class="item-hist"><p class="ih-last">Last recorded <b>${esc(qtyTxt(last))}</b> · ${esc(shortDay(last.day))}</p>${h.length > 1 ? `
+    <ul class="ih-list" aria-label="Earlier entries">${h.slice(1, 6).map(r => `<li><span>${esc(shortDay(r.day))}</span><b>${esc(qtyTxt(r))}</b></li>`).join("")}</ul>` : ""}</div>`;
+}
+function latest(){   // item_id -> [latest entry, previous entry]
   const t = {};
-  sessions.forEach(s => s.items.forEach(r => { if (!byId[r.item_id]) return; const u = (t[r.item_id] = t[r.item_id] || {}); u[r.unit] = (u[r.unit] || 0) + Number(r.qty); }));
+  ITEMS.forEach(i => { const h = itemHistory(i.id); if (h.length) t[i.id] = h; });
   return t;
 }
 function renderHistory(){
@@ -341,10 +350,10 @@ function renderHistory(){
         <div class="day-body"><div><table class="htable"><tbody>${rows.map(r => itemRow(r.item_id, `${fmt(Number(r.qty))} ${esc(r.unit)}`)).join("")}</tbody></table>
           <div class="day-acts"><button class="pill outline small edit-day" type="button" data-day="${s.day}"${s.day === editDay ? " disabled" : ""}>${s.day === editDay ? "Editing now" : "Edit this day"}</button></div></div></div></div>`; }).join("");
   } else {
-    const t = totals();
-    body.innerHTML = `<p class="hist-note">All ${days.length} saved ${days.length === 1 ? "day" : "days"} added together.</p>
-      <table class="htable totals"><thead><tr><th>Item</th><th>Total</th></tr></thead><tbody>${ITEMS.filter(i => t[i.id]).map(i =>
-        itemRow(i.id, Object.entries(t[i.id]).map(([u, q]) => `${fmt(Math.round(q * 100) / 100)} ${esc(u)}`).join(" + "))).join("")}</tbody></table>`;
+    const t = latest();
+    body.innerHTML = `<p class="hist-note">Each item once, with its most recent amount.</p>
+      <table class="htable totals"><thead><tr><th>Item</th><th>Latest</th></tr></thead><tbody>${ITEMS.filter(i => t[i.id]).map(i => { const [l, p] = t[i.id];
+        return itemRow(i.id, `${esc(qtyTxt(l))}<span class="when">${esc(shortDay(l.day))}${p ? ` · was ${esc(qtyTxt(p))}` : ""}</span>`); }).join("")}</tbody></table>`;
   }
 }
 function changeRow(c){

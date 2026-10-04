@@ -178,6 +178,13 @@ body.has-bar .wrap{padding-bottom:140px}
 .wheel-pad{height:72px}
 .opt{height:36px;display:grid;place-items:center;scroll-snap-align:center;font-size:21px;letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:var(--text-2);cursor:pointer;user-select:none;-webkit-user-select:none;backface-visibility:hidden}
 .opt.on{color:var(--text);font-weight:500}
+.item-hist{margin:10px 20px 2px;font-size:15px;letter-spacing:-.01em;color:var(--text-2)}
+.ih-last{margin:0}
+.ih-last b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.ih-list{list-style:none;margin:6px 0 0;padding:0;border-top:1px solid var(--hair)}
+.ih-list li{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-size:14px;color:var(--text-3)}
+.ih-list b{font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.htable .when{display:block;font-size:12px;color:var(--text-3);margin-top:2px}
 .picker-foot{display:flex;justify-content:space-between;padding:4px 20px 8px}
 .picker-foot .clear{color:var(--red)}
 .picker-foot .done{font-weight:600}
