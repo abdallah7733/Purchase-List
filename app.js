@@ -735,7 +735,7 @@ async function refreshTicks(){
 async function setTick(id, on){
   on ? ticks.add(id) : ticks.delete(id); saveLocalTicks(); shopPdfFile = null;
   if (!ticksShared) return;
-  const q = sb.from("purchases_shop_ticks"), { error } = on ? await q.upsert({ item_id: id, ticked_by: myProfile() ? me.id : null }) : await q.delete().eq("item_id", id);
+  const q = sb.from("purchases_shop_ticks"), { error } = on ? await q.upsert({ item_id: id, ticked_by: myProfile() ? me.id : null }, { onConflict: "item_id", ignoreDuplicates: true }) : await q.delete().eq("item_id", id);
   if (error){ fb.error(); toast("Couldn't save the tick. Check your connection."); refreshTicks(); }
 }
 // Market-walk order (category ids), used until purchases_categories.shop_sort is filled in; new categories go last.
