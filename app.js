@@ -476,7 +476,7 @@ const shortRange = (a, b) => { const o = { day: "numeric", month: "short" }; ret
 function archName(a){   // reset date, plus (2), (3)… when there were several resets that day
   const k = dayKey(new Date(a.reset_at)), same = archives.filter(x => dayKey(new Date(x.reset_at)) === k).sort((x, y) => x.reset_at < y.reset_at ? -1 : 1);
   const n = same.findIndex(x => x.id === a.id) + 1;
-  return longDate(k) + (same.length > 1 && n > 1 ? ` (${n})` : "");
+  return parseDay(k).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) + (same.length > 1 && n > 1 ? ` (${n})` : "");
 }
 const archItems = a => new Set(a.sessions.flatMap(s => s.items.map(r => r.item_id)));
 const archNm = (a, id) => byId[id] ? byId[id].name : (a.names[id] && a.names[id].name) || id;
