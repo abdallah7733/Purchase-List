@@ -1,11 +1,11 @@
 -- Seasonal items: a temporary "Seasonal" category (Menu > Seasonal item). It only shows in the app while it has
--- items, sits at the top of the main list and last on the shopping list, and Full Reset empties it.
+-- items, sits at the bottom of the main list and last on the shopping list, and Full Reset empties it.
 -- Items are added through the existing purchases_add_item; nothing new is needed for that.
 
 alter table public.purchases_categories add column if not exists seasonal boolean not null default false;
 
 insert into public.purchases_categories (id, name, sub, hue, sort, shop_sort, seasonal)
-values (12, 'Seasonal', 'Until the next reset', '#7BC47F', 0, 12, true)
+values (12, 'Seasonal', 'Until the next reset', '#7BC47F', 12, 12, true)
 on conflict (id) do update set name = excluded.name, sub = excluded.sub, hue = excluded.hue,
   sort = excluded.sort, shop_sort = excluded.shop_sort, seasonal = excluded.seasonal;
 
