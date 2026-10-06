@@ -171,9 +171,10 @@ function stopEdit(){
 function build(){
   catsEl.innerHTML = ""; picker = null;
   byId = Object.fromEntries(ITEMS.map(i => [i.id, i]));
-  $("#totalItems").textContent = ITEMS.length; $("#totalCats").textContent = CATS.length;
+  $("#totalItems").textContent = ITEMS.length; $("#totalCats").textContent = CATS.filter(c => !c.seasonal || ITEMS.some(i => i.cat === c.id)).length;
   CATS.forEach(c => {
     const its = ITEMS.filter(i => i.cat === c.id);
+    if (c.seasonal && !its.length) return;   // the Seasonal group only shows once something is in it
     const sec = document.createElement("section");
     sec.className = "cat"; sec.style.setProperty("--hue", c.hue); sec.dataset.cid = c.id;
     sec.innerHTML = `<button class="cat-head" type="button" aria-expanded="false">
@@ -219,6 +220,7 @@ function render(changed){
   $("#todayLbl").textContent = longDate(activeDay());
   $("#heroSub").textContent = editDay ? `Editing ${longDate(editDay)}.` : "Pick today's items.";
   $("#editBanner").hidden = !editDay; $("#editDayLbl").textContent = editDay ? longDate(editDay) : "";
+  $("#seasonalMenu").hidden = !seasonalCat();
   renderConfirm(filledTotal); renderNow();
 }
 
@@ -538,12 +540,20 @@ $("#profileForm").addEventListener("submit", async e => {
 $("#meBtn").onclick = () => { fb.tap(); if (menuOpen()) setMenu(false); openProfile(); };
 
 /* ---------- add an item: category + unit picked automatically, both can be changed ---------- */
-const addDlg = $("#addDlg"); let catPicked = false, unitPicked = false;
+const addDlg = $("#addDlg"); let catPicked = false, unitPicked = false, addSeasonal = false;
+// Seasonal items live in their own temporary category; Full Reset removes them.
+const seasonalCat = () => CATS.find(c => c.seasonal);
 $("#addUnit").innerHTML = UNITS.map(u => `<option value="${u}">${u}</option>`).join("");
-function openAdd(name){
-  if (needProfile(() => openAdd(name), "Add your name first, so everyone can see who added the item.")) return;
-  catPicked = unitPicked = false;
-  $("#addCat").innerHTML = `<option value="">Choose a category</option>` + CATS.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+function openAdd(name, seasonal){
+  if (needProfile(() => openAdd(name, seasonal), "Add your name first, so everyone can see who added the item.")) return;
+  const sc = seasonal && seasonalCat(); if (seasonal && !sc){ toast("Seasonal items aren't switched on yet."); return; }
+  catPicked = unitPicked = false; addSeasonal = !!sc;
+  $("#addCat").innerHTML = sc ? `<option value="${sc.id}">${esc(sc.name)}</option>`
+    : `<option value="">Choose a category</option>` + CATS.filter(c => !c.seasonal).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  $("#addCatFld").hidden = !!sc;
+  $("#addTitle").textContent = sc ? "Add a seasonal item" : "Add an item";
+  $("#addNameLbl").textContent = sc ? "What's the seasonal item?" : "Item name";
+  $("#addName").placeholder = sc ? "e.g. Vanilla" : "e.g. Cheddar cheese";
   $("#addName").value = name || ""; $("#addErr").textContent = ""; addGuess();
   document.querySelectorAll("dialog[open]").forEach(d => d.close());
   addDlg.showModal();
@@ -551,12 +561,13 @@ function openAdd(name){
 function addGuess(){
   const name = $("#addName").value.trim().replace(/\s+/g, " "), low = name.toLowerCase();
   const dup = name && ITEMS.find(i => i.name.toLowerCase() === low), g = name ? guessCategory(name) : null, sel = $("#addCat"), hint = $("#addHint");
-  if (!catPicked) sel.value = g ? String(g.cat) : "";
+  if (!catPicked && !addSeasonal) sel.value = g ? String(g.cat) : "";
   const cat = +sel.value || null;
-  if (!unitPicked) $("#addUnit").value = g && g.cat === cat ? g.unit : CAT_UNIT[cat] || "pcs";
+  if (!unitPicked) $("#addUnit").value = g && (addSeasonal || g.cat === cat) ? g.unit : CAT_UNIT[cat] || "pcs";
   $("#addAuto").hidden = catPicked || !g;
   hint.className = "add-hint" + (dup ? " warn" : "");
   hint.textContent = dup ? `"${dup.name}" is already on the list, in ${CATS.find(c => c.id === dup.cat).name}.`
+    : addSeasonal ? (name ? "Goes in Seasonal until the next Full Reset." : "Type the item. It stays in Seasonal until the next Full Reset.")
     : !name ? "Type a name and the app picks a category."
     : catPicked ? "You chose the category." : g ? "Category picked automatically. You can change it." : "Couldn't tell the category. Please choose one.";
   $("#addGo").disabled = !name || !!dup || !cat;
@@ -648,6 +659,7 @@ menu.addEventListener("click", e => {
   setTimeout(() => {
     if (g === "history" || g === "totals" || g === "activity"){ setTab(g === "history" ? "dates" : g); go("history"); }
     else if (g === "add") openAdd();
+    else if (g === "seasonal") openAdd("", true);
     else if (g === "profile") openProfile();
     else if (g === "cats") go("catsBlock");
     else if (g === "export") exportCsv();
@@ -851,7 +863,7 @@ shopDlg.addEventListener("close", () => { $("#shopPdf span").textContent = "Shar
 
 /* ---------- load ---------- */
 function apply(cats, items){
-  CATS = cats.map(c => ({ id: c.id, name: c.name, sub: c.sub, hue: c.hue, sort: c.sort, shop_sort: c.shop_sort }));
+  CATS = cats.map(c => ({ id: c.id, name: c.name, sub: c.sub, hue: c.hue, sort: c.sort, shop_sort: c.shop_sort, seasonal: !!c.seasonal }));
   let n = 0; ITEMS = [];
   CATS.forEach(c => items.filter(i => i.category_id === c.id).sort((a, b) => a.sort - b.sort)
     .forEach(i => ITEMS.push({ id: i.id, name: i.name, unit: i.default_unit, cat: c.id, no: ++n })));
