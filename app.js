@@ -444,7 +444,7 @@ $("#resetForm").addEventListener("submit", async e => {
   go.disabled = false;
   if (error){ fb.error(); $("#resetErr").textContent = /locked/.test(error.message) ? "Too many wrong tries. Wait 15 minutes." : "Couldn't reset. Check your connection."; return; }
   if (data < 0){ fb.error(); $("#resetErr").textContent = "Wrong passcode."; $("#passcode").select(); return; }
-  editDay = null; todayStash = null; sessions = []; stock = {}; ticks.clear(); try { localStorage.removeItem(TICKS_KEY); } catch(e){} openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close(); refreshActivity();
+  editDay = null; todayStash = null; sessions = []; stock = {}; ticks.clear(); try { localStorage.removeItem(TICKS_KEY); } catch(e){} openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close(); refreshActivity(); reloadItems();   // reloadItems drops the seasonal items the reset removed
   fb.success(); toast("History reset.");
 });
 
