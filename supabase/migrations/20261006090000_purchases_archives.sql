@@ -40,7 +40,7 @@ begin
 end $function$;
 revoke all on function purchases_private.passcode_ok(text) from public, anon, authenticated;
 
--- Full Reset: archive the period (skipped when nothing was logged), then clear days and shopping ticks.
+-- Full Reset: archive the period (skipped when nothing was logged), then clear days, shopping ticks and seasonal items.
 create or replace function public.purchases_reset_history(passcode text, p_profile uuid default null)
 returns integer language plpgsql security definer set search_path to '' as $function$
 declare n integer; who uuid; arch bigint;
@@ -58,6 +58,10 @@ begin
   delete from public.purchases_sessions where true;
   get diagnostics n = row_count;
   delete from public.purchases_shop_ticks where true;
+  -- Seasonal items go after the snapshot, so the archived period still names them (Seasonal items, PR #12).
+  if to_regprocedure('public.purchases_clear_seasonal()') is not null then
+    perform public.purchases_clear_seasonal();
+  end if;
   insert into public.purchases_activity (profile_id, kind, details)
   values (who, 'reset', jsonb_build_object('days', n, 'archive_id', arch));
   return n;
