@@ -396,3 +396,20 @@ img.av{box-shadow:0 0 0 .5px rgba(0,0,0,.1)}
 .pdf-page tr.pcat i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
 .pdf-page tr.ticked td:nth-child(2){color:#86868B;text-decoration:line-through}
 .pdf-page footer{position:absolute;left:56px;right:56px;bottom:28px;font-size:11px;color:#86868B;text-align:center}
+
+/* ---------- archive: one dated snapshot per Full Reset ---------- */
+.arch-back{min-height:36px;margin:-8px 0 4px -2px;font-size:16px;gap:4px}
+.arch-back span{font-size:26px;line-height:1;margin-top:-3px}
+.arch-seg{margin-top:12px;grid-template-columns:1fr 1fr;max-width:320px}
+.arch-seg::before{width:calc(50% - 2px)}
+.arch-seg[data-sel="totals"]::before{transform:translateX(100%)}
+.arch-list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:10px}
+.arch-open{all:unset;box-sizing:border-box;width:100%;min-height:64px;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:12px 18px;border:1px solid var(--line);border-radius:var(--r);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .2s var(--ease);animation:fadein .4s var(--ease) both}
+.arch-open:active{background:var(--bg-alt)}
+.arch-t{display:flex;flex-direction:column;min-width:0}
+.arch-date{font-size:17px;font-weight:600}
+.arch-sub{font-size:13px;color:var(--text-2);letter-spacing:-.01em}
+.arch-go{font-size:22px;color:var(--text-3)}
+.arch .day{margin-top:10px}
+.arch .hist-note{margin:12px 6px 8px;font-size:15px}
+.arch-del{display:flex;margin:-4px auto 6px;font-size:15px;min-height:36px;color:var(--red)}
