@@ -34,6 +34,7 @@
   <ul class="menu-main">
     <li><button type="button" data-go="shop">Shopping list</button></li>
     <li><button type="button" data-go="history">History</button></li>
+    <li><button type="button" data-go="archive">Archive</button></li>
     <li><button type="button" data-go="totals">In stock</button></li>
     <li><button type="button" data-go="activity">Activity</button></li>
     <li><button type="button" data-go="cats">Categories</button></li>
@@ -107,11 +108,29 @@
 <dialog class="dlg" id="resetDlg" aria-labelledby="resetTitle">
   <form id="resetForm" method="dialog">
     <h2 id="resetTitle">Reset all history?</h2>
-    <p>This deletes every saved date and all item history. You can't undo it.</p>
+    <p id="resetText">This deletes every saved date and all item history. You can't undo it.</p>
     <label class="fld"><span>Admin passcode</span><input id="passcode" type="password" inputmode="numeric" autocomplete="off" enterkeyhint="done"></label>
     <p class="err" id="resetErr" role="alert"></p>
     <div class="dlg-btns"><button class="pill outline" id="resetCancel" type="button">Cancel</button><button class="pill danger" id="resetGo" type="submit">Reset</button></div>
   </form>
+</dialog>
+
+<dialog class="dlg sheet shop arch" id="archDlg" aria-labelledby="archTitle">
+  <div class="shop-head">
+    <button class="linkbtn arch-back" id="archBack" type="button" hidden><span aria-hidden="true">‹</span>All periods</button>
+    <p class="eyebrow" id="archEyebrow">Archive</p>
+    <h2 id="archTitle">Past periods.</h2>
+    <p class="shop-meta" id="archMeta"></p>
+    <div class="seg arch-seg" role="tablist" aria-label="Period view" data-sel="dates" hidden>
+      <button type="button" role="tab" data-tab="dates" aria-selected="true">Days</button>
+      <button type="button" role="tab" data-tab="totals" aria-selected="false">Left at reset</button>
+    </div>
+  </div>
+  <div class="shop-body" id="archBody"></div>
+  <div class="shop-foot">
+    <button class="linkbtn arch-del" id="archDel" type="button" hidden>Delete this period</button>
+    <div class="dlg-btns"><button class="pill primary" id="archDone" type="button">Done</button></div>
+  </div>
 </dialog>
 
 <dialog class="dlg sheet shop" id="shopDlg" aria-labelledby="shopTitle">

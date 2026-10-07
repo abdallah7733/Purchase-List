@@ -381,7 +381,7 @@ function renderActivity(body){
     else if (a.kind === "add_item"){ const c = CATS.find(c => c.id === d.category_id);
       what = `${who} added a new item`;
       extra = `<ul class="chgs"><li><i class="chg add" aria-label="added">+</i><span>${esc(d.name)}</span><b class="muted">${esc(c ? c.name : "")} · ${esc(d.unit)}</b></li></ul>`; }
-    else if (a.kind === "reset"){ what = `${who} reset all history`; extra = `<p class="act-note">${d.days || 0} saved ${d.days === 1 ? "day" : "days"} deleted</p>`; }
+    else if (a.kind === "reset"){ what = `${who} reset all history`; extra = `<p class="act-note">${d.days || 0} saved ${d.days === 1 ? "day" : "days"} ${d.archive_id ? "moved to Archive" : "deleted"}</p>`; }
     return `<li class="act">${avatar(PROFILES[a.profile_id], "s32")}<div><p class="act-t">${what}</p>${extra}<time datetime="${esc(a.at)}">${esc(whenLabel(a.at))}</time></div></li>`;
   }).join("")}</ul>`;
 }
@@ -427,23 +427,104 @@ $("#confirmBtn").onclick = async () => {
   cache(); setSave("saved", "Saved"); render(); renderHistory(); fb.success();
 };
 
-/* ---------- admin reset (passcode checked in the database) ---------- */
+/* ---------- admin passcode dialog: Full Reset, or deleting one archived period ---------- */
 const dlg = $("#resetDlg");
-function openReset(){ $("#resetErr").textContent = ""; $("#passcode").value = ""; dlg.showModal(); }
+let resetMode = null;   // null = Full Reset, otherwise the archive row being deleted
+function resetCopy(){
+  if (resetMode) return [`Delete ${archName(resetMode)}?`, "This removes the saved copy of that period. You can't undo it.", "Delete"];
+  const d = sessions.filter(s => s.items.length).length;
+  if (archOk && d) return ["Start a new period?", `The ${d} saved ${d === 1 ? "day" : "days"} since the last reset ${d === 1 ? "is" : "are"} saved to Archive first, then cleared.`, "Reset"];
+  return ["Reset all history?", "This deletes every saved date and all item history. You can't undo it.", "Reset"];
+}
+function openReset(arch){
+  resetMode = arch || null; const [t, p, b] = resetCopy();
+  $("#resetTitle").textContent = t; $("#resetText").textContent = p; $("#resetGo").textContent = b;
+  $("#resetErr").textContent = ""; $("#passcode").value = ""; dlg.showModal();
+}
 $("#resetBtn").onclick = () => { fb.tap(); openReset(); };
 $("#resetCancel").onclick = () => { fb.tap(); dlg.close(); };
 $("#resetForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const code = $("#passcode").value.trim(), go = $("#resetGo");
+  const code = $("#passcode").value.trim(), go = $("#resetGo"), arch = resetMode;
   if (!code){ fb.error(); $("#resetErr").textContent = "Enter the passcode."; return; }
   if (!sb){ fb.error(); $("#resetErr").textContent = "You're offline."; return; }
   fb.tap(); go.disabled = true; $("#resetErr").textContent = "";
-  const { data, error } = await sb.rpc("purchases_reset_history", { passcode: code, p_profile: myProfile() ? me.id : null });
+  const { data, error } = arch ? await sb.rpc("purchases_delete_archive", { passcode: code, p_id: arch.id })
+    : await sb.rpc("purchases_reset_history", { passcode: code, p_profile: myProfile() ? me.id : null });
   go.disabled = false;
-  if (error){ fb.error(); $("#resetErr").textContent = /locked/.test(error.message) ? "Too many wrong tries. Wait 15 minutes." : "Couldn't reset. Check your connection."; return; }
+  if (error){ fb.error(); $("#resetErr").textContent = /locked/.test(error.message) ? "Too many wrong tries. Wait 15 minutes." : `Couldn't ${arch ? "delete" : "reset"}. Check your connection.`; return; }
   if (data < 0){ fb.error(); $("#resetErr").textContent = "Wrong passcode."; $("#passcode").select(); return; }
-  editDay = null; todayStash = null; sessions = []; stock = {}; ticks.clear(); try { localStorage.removeItem(TICKS_KEY); } catch(e){} openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); dlg.close(); refreshActivity();
-  fb.success(); toast("History reset.");
+  dlg.close();
+  if (arch){ archives = archives.filter(a => a.id !== arch.id); archView = null; renderArch(); fb.success(); toast("Period deleted."); return; }
+  const archived = archOk && sessions.some(s => s.items.length);
+  editDay = null; todayStash = null; sessions = []; stock = {}; ticks.clear(); try { localStorage.removeItem(TICKS_KEY); } catch(e){} openDays.clear(); if (selected) selectItem(selected); cache(); render(); renderHistory(); refreshActivity(); refreshArch();
+  fb.success(); toast(archived ? "History reset. The period is saved in Archive." : "History reset.");
+});
+
+/* ---------- archive: what was logged between two Full Resets, one snapshot per reset ---------- */
+const archDlg = $("#archDlg");
+let archives = [], archOk = null, archView = null, archTab = "dates";
+const archOpenDays = new Set();
+const fetchArch = () => sb.from("purchases_archives").select("id,reset_at,reset_by,first_day,last_day,days,sessions,names").order("reset_at", { ascending: false });
+async function refreshArch(){
+  if (!sb){ archOk = false; return; } const r = await fetchArch();
+  archOk = !r.error; if (r.error){ if (archDlg.open) renderArch(); return; }   // table not created yet: Full Reset keeps working as before
+  archives = r.data; if (archView) archView = archives.find(a => a.id === archView.id) || null;
+  if (archDlg.open) renderArch();
+}
+const shortRange = (a, b) => { const o = { day: "numeric", month: "short" }; return a === b ? parseDay(a).toLocaleDateString("en-GB", o) : `${parseDay(a).toLocaleDateString("en-GB", o)} to ${parseDay(b).toLocaleDateString("en-GB", o)}`; };
+function archName(a){   // reset date, plus (2), (3)… when there were several resets that day
+  const k = dayKey(new Date(a.reset_at)), same = archives.filter(x => dayKey(new Date(x.reset_at)) === k).sort((x, y) => x.reset_at < y.reset_at ? -1 : 1);
+  const n = same.findIndex(x => x.id === a.id) + 1;
+  return parseDay(k).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) + (same.length > 1 && n > 1 ? ` (${n})` : "");
+}
+const archItems = a => new Set(a.sessions.flatMap(s => s.items.map(r => r.item_id)));
+const archNm = (a, id) => byId[id] ? byId[id].name : (a.names[id] && a.names[id].name) || id;
+const archHue = (a, id) => hueOf(byId[id] ? byId[id].cat : a.names[id] && a.names[id].category_id);
+const archOrder = (a, id) => byId[id] ? byId[id].no : 1e6;
+const archRow = (a, id, q) => `<tr><td><i class="dot" style="--hue:${esc(archHue(a, id))}"></i>${esc(archNm(a, id))}</td><td>${q}</td></tr>`;
+function renderArch(){
+  const body = $("#archBody"), seg = archDlg.querySelector(".arch-seg"), a = archView;
+  $("#archBack").hidden = !a; $("#archDel").hidden = !a; seg.hidden = !a;
+  if (!a){
+    $("#archEyebrow").textContent = "Archive"; $("#archTitle").textContent = "Past periods.";
+    $("#archMeta").textContent = archives.length ? `${archives.length} ${archives.length === 1 ? "period" : "periods"} · newest first` : "";
+    body.innerHTML = archOk === null ? `<p class="hist-empty">Loading.</p>` : !archOk ? `<p class="hist-empty">Archive isn't switched on yet.<br>Until it is, a Full Reset works as before.</p>`
+      : !archives.length ? `<p class="hist-empty">Nothing archived yet.<br>Each <b>Full Reset</b> saves everything logged since the previous reset here, under the reset date.</p>`
+      : `<ul class="arch-list">${archives.map(x => { const n = archItems(x).size;
+          return `<li><button class="arch-open" type="button" data-id="${x.id}"><span class="arch-t"><span class="arch-date">${esc(archName(x))}</span><span class="arch-sub">${esc(shortRange(x.first_day, x.last_day))} · ${x.days} ${x.days === 1 ? "day" : "days"} · ${n} ${n === 1 ? "item" : "items"}</span></span><span class="arch-go" aria-hidden="true">›</span></button></li>`; }).join("")}</ul>`;
+    return;
+  }
+  const n = archItems(a).size;
+  $("#archEyebrow").textContent = "Archived period"; $("#archTitle").textContent = archName(a) + ".";
+  $("#archMeta").textContent = `${shortRange(a.first_day, a.last_day)} · ${a.days} ${a.days === 1 ? "day" : "days"} · ${n} ${n === 1 ? "item" : "items"}${a.reset_by ? ` · reset by ${whoName(a.reset_by)}` : ""}`;
+  seg.dataset.sel = archTab; seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === archTab));
+  if (archTab === "dates"){
+    body.innerHTML = a.sessions.map(s => { const key = `${a.id}:${s.day}`, open = archOpenDays.has(key), rows = s.items.slice().sort((x, y) => archOrder(a, x.item_id) - archOrder(a, y.item_id));
+      const by = s.updated_at ? `<span class="day-by">${s.saved_by_profile ? `Saved by ${esc(whoName(s.saved_by_profile))} · ` : "Saved "}${esc(timeOf(s.updated_at))}</span>` : "";
+      return `<div class="day${open ? " open" : ""}" data-key="${esc(key)}">
+        <button class="day-head" type="button" aria-expanded="${open}">${avatar(PROFILES[s.saved_by_profile], "s32")}<span class="day-t"><span class="day-date">${esc(longDate(s.day))}</span>${by}</span><span class="day-n">${rows.length} ${rows.length === 1 ? "item" : "items"}</span>${chev}</button>
+        <div class="day-body"><div><table class="htable"><tbody>${rows.map(r => archRow(a, r.item_id, `${fmt(Number(r.qty))} ${esc(r.unit)}`)).join("")}</tbody></table></div></div></div>`; }).join("");
+  } else {   // latest count per item in this period (sessions are newest day first), never summed
+    const t = {}; a.sessions.forEach(s => s.items.forEach(r => { (t[r.item_id] = t[r.item_id] || []).push({ day: s.day, qty: Number(r.qty), unit: r.unit }); }));
+    body.innerHTML = `<p class="hist-note">What was at home when you reset: each item's last count in this period.</p>
+      <table class="htable totals"><thead><tr><th>Item</th><th>Left</th></tr></thead><tbody>${Object.keys(t).sort((x, y) => archOrder(a, x) - archOrder(a, y) || archNm(a, x).localeCompare(archNm(a, y))).map(id => { const [l, p] = t[id];
+        return archRow(a, id, `${esc(qtyTxt(l))}<span class="when">${esc(longDate(l.day))}${p ? ` · was ${esc(qtyTxt(p))}` : ""}</span>`); }).join("")}</tbody></table>`;
+  }
+}
+function openArch(){ archView = null; archTab = "dates"; renderArch(); archDlg.showModal(); $("#archBody").scrollTop = 0; refreshArch(); }
+$("#archDone").onclick = () => { fb.tap(); archDlg.close(); };
+$("#archBack").onclick = () => { fb.tap(); archView = null; renderArch(); $("#archBody").scrollTop = 0; };
+$("#archDel").onclick = () => { if (!archView) return; fb.tap(); openReset(archView); };
+archDlg.querySelector(".arch-seg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b || b.dataset.tab === archTab) return; fb.tap(); archTab = b.dataset.tab; renderArch(); $("#archBody").scrollTop = 0;
+});
+$("#archBody").addEventListener("click", e => {
+  const o = e.target.closest(".arch-open");
+  if (o){ fb.tap(); archView = archives.find(a => a.id === Number(o.dataset.id)) || null; archTab = "dates"; renderArch(); $("#archBody").scrollTop = 0; return; }
+  const head = e.target.closest(".day-head");
+  if (head){ const k = head.parentElement.dataset.key; archOpenDays.has(k) ? archOpenDays.delete(k) : archOpenDays.add(k); fb.tap();
+    head.parentElement.classList.toggle("open", archOpenDays.has(k)); head.setAttribute("aria-expanded", archOpenDays.has(k)); }
 });
 
 /* ---------- "Recently saved" pop-up, once per app open ---------- */
@@ -653,6 +734,7 @@ menu.addEventListener("click", e => {
     else if (g === "export") exportCsv();
     else if (g === "reset") openReset();
     else if (g === "shop") openShop();
+    else if (g === "archive") openArch();
   }, 280);
 });
 function cancelEdit(){ fb.tap(); const changed = isDirty(); stopEdit(); toast(changed ? "Changes discarded." : "Stopped editing."); }
@@ -902,6 +984,8 @@ async function load(){
     .on(...pg("purchases_profiles", debounce(refreshProfiles, 300)))
     .on(...pg("purchases_activity", debounce(refreshActivity, 300)))
     .subscribe();
+  refreshArch();
+  sb.channel("purchases-archive").on(...pg("purchases_archives", debounce(refreshArch, 300))).subscribe();   // own channel, like ticks
   refreshTicks();   // own channel, so a missing ticks table can't break the live updates above
   sb.channel("purchases-ticks").on(...pg("purchases_shop_ticks", debounce(refreshTicks, 200))).subscribe();
 }
