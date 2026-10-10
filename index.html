@@ -39,6 +39,7 @@
     <li><button type="button" data-go="activity">Activity</button></li>
     <li><button type="button" data-go="cats">Categories</button></li>
     <li><button type="button" data-go="add">Add item</button></li>
+    <li id="seasonalMenu" hidden><button type="button" data-go="seasonal">Seasonal item</button></li>
   </ul>
   <p class="menu-label">More</p>
   <ul class="menu-more">
@@ -165,9 +166,9 @@
   <form id="addForm" novalidate>
     <p class="eyebrow">New item</p>
     <h2 id="addTitle">Add an item</h2>
-    <label class="fld text"><span>Item name</span><input id="addName" type="text" maxlength="40" autocomplete="off" autocapitalize="sentences" enterkeyhint="done" placeholder="e.g. Cheddar cheese"></label>
+    <label class="fld text"><span id="addNameLbl">Item name</span><input id="addName" type="text" maxlength="40" autocomplete="off" autocapitalize="sentences" enterkeyhint="done" placeholder="e.g. Cheddar cheese"></label>
     <p class="add-hint" id="addHint">Type a name and the app picks a category.</p>
-    <label class="fld text"><span>Category <em class="tag" id="addAuto" hidden>Auto</em></span><select id="addCat"></select></label>
+    <label class="fld text" id="addCatFld"><span>Category <em class="tag" id="addAuto" hidden>Auto</em></span><select id="addCat"></select></label>
     <label class="fld text"><span>Unit</span><select id="addUnit"></select></label>
     <p class="err" id="addErr" role="alert"></p>
     <div class="dlg-btns"><button class="pill outline" id="addCancel" type="button">Cancel</button><button class="pill primary" id="addGo" type="submit">Add item</button></div>
