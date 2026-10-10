@@ -29,7 +29,7 @@
 - **Add item:** guesses the category and unit from the name (English and Arabic), both editable. New items appear for everyone at once.
 - **Activity:** a log of saves (with exactly which items changed), added items and resets, written by database triggers.
 - **Push notifications:** every new activity row calls the `purchases-notify` Edge Function. It waits for 30 s of quiet (at most 3 min) and sends one message per person to every other subscribed device, e.g. "Mohammed added 3 items to your purchase list". Tapping it opens Activity. The app icon shows an unread badge.
-- **Full Reset** (passcode): saves everything logged since the previous reset as one snapshot in `purchases_archives`, then clears the days and the shopping ticks. **Archive** shows past periods; deleting one also needs the passcode. Five wrong passcodes lock both for 15 minutes.
+- **Full Reset** (passcode): saves everything logged since the previous reset as one snapshot in `purchases_archives`, then clears the days, the shopping ticks and any Seasonal items. **Archive** shows past periods; deleting one also needs the passcode. Five wrong passcodes lock both for 15 minutes.
 - **Also:** CSV export, a "Recently saved" pop-up once per app open, sound on/off.
 
 ---
@@ -51,10 +51,7 @@ Static site, no build step. `index.html`, `styles.css` and `app.js` hold the who
 
 ### Schema is in the repo
 
-`supabase/migrations/` holds every change in order. Replaying them on an empty Supabase project rebuilds the live schema exactly; this was checked on 10 October 2026 by replaying them into a scratch Postgres and comparing tables, columns, constraints, indexes, functions, triggers, policies, grants and Realtime tables against the live database. Two things differ, both on purpose:
-
-- `public.rls_auto_enable()` existed in the project before this app and isn't ours.
-- The `seasonal` column and `purchases_clear_seasonal()` are live but their migration (`20261006100000_purchases_seasonal.sql`) is still in the open Seasonal items PR. It joins the folder when that PR merges.
+`supabase/migrations/` holds every change in order. Replaying them on an empty Supabase project rebuilds the live schema exactly; this was checked on 10 October 2026 by replaying them into a scratch Postgres and comparing tables, columns, constraints, indexes, functions, triggers, policies, grants and Realtime tables against the live database. The only difference is `public.rls_auto_enable()`, which existed in the project before this app and isn't ours.
 
 `supabase/seed.sql` restores the current categories and items. It deliberately leaves out people's data and the secrets row (below).
 
@@ -62,7 +59,7 @@ Static site, no build step. `index.html`, `styles.css` and `app.js` hold the who
 
 | Table | What it holds | App can |
 |---|---|---|
-| `purchases_categories` | 11 categories: name, colour (`hue`), `sort`, `shop_sort` | read |
+| `purchases_categories` | 11 categories plus Seasonal (id 12, `seasonal = true`, shown only while it has items): name, colour (`hue`), `sort`, `shop_sort` | read |
 | `purchases_items` | 61 items: slug id, name, category, default unit, `sort`, `added_by` | read (add through `purchases_add_item`) |
 | `purchases_sessions` | One row per date: `items` = `[{item_id, qty, unit}]`, who saved it | read, insert, update |
 | `purchases_activity` | Change log (`save`, `add_item`, `reset`) | read only |
@@ -109,7 +106,7 @@ Run the migrations in order on a new project, then `seed.sql`. Then, by hand:
 
 ## 6. Known issues and open work
 
-- **Open pull requests:** Seasonal items (a temporary category that Full Reset empties; already live in the database) and the draft smoke test. Older draft PRs for these docs and the migrations are replaced by this update.
+- **Open pull requests:** the draft smoke test. Older draft PRs for these docs and the migrations are replaced by this update.
 - **Supabase security advisor:**
   - It flags RLS as off on the `purchases_private` tables. Those tables aren't reachable from the API (the schema isn't exposed and anon has no usage on it), so this is low risk. Enabling RLS on them with no policies would add defence in depth without breaking anything, because only `security definer` functions and the Edge Function read them. Ask Abdallah first.
   - `public.rls_auto_enable()` predates this app. Ask Abdallah before touching it.

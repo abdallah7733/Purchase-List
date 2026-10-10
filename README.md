@@ -6,14 +6,14 @@ A shared home-stock app for iPhone. Each person counts what's left at home, conf
 
 ## What it does
 
-- **61 household items in 11 categories**, ordered like a walk through a supermarket. Anyone can **add an item**; the category and unit are guessed from the name (English or Arabic) and can be changed.
+- **61 household items in 11 categories**, ordered like a walk through a supermarket, plus a **Seasonal** group for temporary items that Full Reset clears. Anyone can **add an item**; the category and unit are guessed from the name (English or Arabic) and can be changed.
 - **Pick an amount** with an iOS-style wheel (quantity + unit), or type an exact amount. Zero is a valid count.
 - **Confirm** saves today's list. Confirming again the same day replaces it, and past days can be edited from History.
 - **History** by date, **In stock** (each item's latest count), and an item's own history when you pick it.
 - **Shopping list** of every item counted since the last reset with the amount left, in market-walk order, with ticks shared live between phones and a PDF export.
 - **Profiles** with a name and an avatar (preset or photo), and an **Activity** log of who changed what.
 - **Push notifications** to the other phones ("Mohammed added 3 items to your purchase list"), batched while someone is still editing, plus a badge on the app icon.
-- **Full Reset** (admin passcode) saves the period to the **Archive**, then clears the days and the shopping ticks.
+- **Full Reset** (admin passcode) saves the period to the **Archive**, then clears the days, the shopping ticks and Seasonal items.
 - **Export CSV**, haptic ticks and soft click sounds (sound can be turned off in the menu).
 
 ## Stack
