@@ -630,7 +630,7 @@ function openAdd(name, seasonal){
   const sc = seasonal && seasonalCat(); if (seasonal && !sc){ toast("Seasonal items aren't switched on yet."); return; }
   catPicked = unitPicked = false; addSeasonal = !!sc;
   $("#addCat").innerHTML = sc ? `<option value="${sc.id}">${esc(sc.name)}</option>`
-    : `<option value="">Choose a category</option>` + CATS.filter(c => !c.seasonal).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+    : `<option value="">Choose a category</option>` + CATS.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
   $("#addCatFld").hidden = !!sc;
   $("#addTitle").textContent = sc ? "Add a seasonal item" : "Add an item";
   $("#addNameLbl").textContent = sc ? "What's the seasonal item?" : "Item name";
@@ -643,12 +643,12 @@ function addGuess(){
   const name = $("#addName").value.trim().replace(/\s+/g, " "), low = name.toLowerCase();
   const dup = name && ITEMS.find(i => i.name.toLowerCase() === low), g = name ? guessCategory(name) : null, sel = $("#addCat"), hint = $("#addHint");
   if (!catPicked && !addSeasonal) sel.value = g ? String(g.cat) : "";
-  const cat = +sel.value || null;
-  if (!unitPicked) $("#addUnit").value = g && (addSeasonal || g.cat === cat) ? g.unit : CAT_UNIT[cat] || "pcs";
+  const cat = +sel.value || null, seas = addSeasonal || !!(cat && CATS.find(c => c.id === cat)?.seasonal);
+  if (!unitPicked) $("#addUnit").value = g && (seas || g.cat === cat) ? g.unit : CAT_UNIT[cat] || "pcs";
   $("#addAuto").hidden = catPicked || !g;
   hint.className = "add-hint" + (dup ? " warn" : "");
   hint.textContent = dup ? `"${dup.name}" is already on the list, in ${CATS.find(c => c.id === dup.cat).name}.`
-    : addSeasonal ? (name ? "Goes in Seasonal until the next Full Reset." : "Type the item. It stays in Seasonal until the next Full Reset.")
+    : seas ? (name ? "Goes in Seasonal until the next Full Reset." : "Type the item. It stays in Seasonal until the next Full Reset.")
     : !name ? "Type a name and the app picks a category."
     : catPicked ? "You chose the category." : g ? "Category picked automatically. You can change it." : "Couldn't tell the category. Please choose one.";
   $("#addGo").disabled = !name || !!dup || !cat;
