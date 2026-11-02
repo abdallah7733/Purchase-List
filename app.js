@@ -345,7 +345,7 @@ function latest(){   // item_id -> [latest entry, previous entry]
 }
 function renderHistory(){
   if (!built) return;
-  shopRefresh();
+  shopRefresh(); document.dispatchEvent(new Event("purchases:data"));   // beta.js listens
   const body = $("#histBody"), days = sessions.filter(s => s.items.length);
   $("#histMeta").textContent = days.length ? `${days.length} ${days.length === 1 ? "day" : "days"} saved.` : "Nothing saved yet.";
   $(".seg").dataset.sel = histTab;
@@ -560,6 +560,7 @@ function renderMe(){
   $("#meAv").innerHTML = avatar(p); $("#meName").textContent = p ? p.name : "Profile";
   $("#meBtn").setAttribute("aria-label", p ? `Your profile: ${p.name}` : "Create your profile");
   $("#profileLbl").textContent = p ? `Profile: ${p.name}` : "Create your profile";
+  document.dispatchEvent(new Event("purchases:me"));   // beta.js listens
 }
 function pfPaint(){
   $("#pfPreview").innerHTML = avatar({ avatar: pfAvatar }, "lg");
@@ -747,6 +748,7 @@ menu.addEventListener("click", e => {
     else if (g === "reset") openReset();
     else if (g === "shop") openShop();
     else if (g === "archive") openArch();
+    else if (g === "beta") document.dispatchEvent(new Event("purchases:beta-open"));
   }, 280);
 });
 function cancelEdit(){ fb.tap(); const changed = isDirty(); stopEdit(); toast(changed ? "Changes discarded." : "Stopped editing."); }
@@ -1001,5 +1003,8 @@ async function load(){
   refreshTicks();   // own channel, so a missing ticks table can't break the live updates above
   sb.channel("purchases-ticks").on(...pg("purchases_shop_ticks", debounce(refreshTicks, 200))).subscribe();
 }
+/* Read-only hooks for beta.js (Buying guide). The stable app never depends on them. */
+window.PurchasesApp = { sb, me, myProfile, latest, shopCats, hueOf, fb, toast, esc, fmt, longDate, shortDay, dayKey, parseDay, qtyTxt,
+  get CATS(){ return CATS; }, get ITEMS(){ return ITEMS; }, get loaded(){ return loaded; } };
 load();
 })();
