@@ -1,0 +1,12 @@
+{
+  "name": "purchase-list",
+  "private": true,
+  "description": "Test tooling only. The app itself is static files with no build step.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@supabase/supabase-js": "2.117.2"
+  }
+}
