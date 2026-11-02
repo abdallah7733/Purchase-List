@@ -24,7 +24,7 @@ document.addEventListener("purchases:me", gate); gate();
 const dlg = document.createElement("dialog");
 dlg.className = "dlg sheet shop bg"; dlg.id = "betaDlg"; dlg.setAttribute("aria-labelledby", "bgTitle");
 dlg.innerHTML = `<div class="shop-head">
-    <button class="linkbtn arch-back" id="bgBack" type="button" hidden><span aria-hidden="true">‹</span>All receipts</button>
+    <button class="linkbtn arch-back" id="bgBack" type="button" hidden><span aria-hidden="true">‹</span><b id="bgBackLbl">All receipts</b></button>
     <p class="eyebrow">Buying guide <em class="tag">Beta</em></p>
     <h2 id="bgTitle">What to buy.</h2>
     <p class="shop-meta" id="bgMeta"></p>
@@ -36,12 +36,14 @@ dlg.innerHTML = `<div class="shop-head">
   <div class="shop-body" id="bgBody"></div>
   <div class="shop-foot">
     <button class="linkbtn shop-clear" id="bgClear" type="button" hidden>Clear ticks</button>
-    <div class="dlg-btns"><button class="pill primary" id="bgDone" type="button">Done</button></div>
+    <div class="dlg-btns" id="bgBtns"><button class="pill primary" id="bgDone" type="button">Done</button></div>
+    <div class="dlg-btns" id="bgCountBtns" hidden><button class="pill outline" id="bgCountCancel" type="button">Cancel</button><button class="pill primary" id="bgCountSave" type="button" disabled>Save</button></div>
   </div>`;
 document.body.appendChild(dlg);
 
 let ok = null, receipts = [], lines = [], betaItems = [], usualSet = {}, betaStock = {};
 let tab = "guide", receiptView = null, openRow = null, showOther = false, busy = false;
+let counting = false, draft = {};   // "Count at home" form: item id -> typed text
 
 async function fetchAllRows(make){   // page past the API's 1000-row cap
   const out = []; for (let from = 0; ; from += 1000){
@@ -65,7 +67,7 @@ async function refresh(){
     betaStock = Object.fromEntries(s.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit, day: A.dayKey(new Date(x.counted_at)) }]));
     if (receiptView) receiptView = receipts.find(x => x.id === receiptView.id) || null;
   }
-  if (dlg.open) keepScroll(render);
+  if (dlg.open && !counting) keepScroll(render);
 }
 
 /* ---------- maths ---------- */
@@ -120,10 +122,11 @@ function saveTicks(){ try { localStorage.setItem(TICKS, JSON.stringify({ month: 
 /* ---------- render ---------- */
 const tickSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>`;
 const chev = `<span class="chev" aria-hidden="true"><i></i><i></i></span>`;
+const stale = day => day && (A.parseDay(A.dayKey()) - A.parseDay(day)) / 864e5 > 7;
 function haveTxt(x){
   if (!x.haveRaw) return null;
   if (x.have == null) return `${A.qtyTxt({ qty: Number(x.haveRaw.qty), unit: x.haveRaw.unit })} (other unit)`;
-  return `${qty(x.have, x.unit)} · ${A.shortDay(x.haveDay)}`;
+  return `${qty(x.have, x.unit)} · ${A.shortDay(x.haveDay)}${stale(x.haveDay) ? " (over a week old)" : ""}`;
 }
 function buyCell(x){
   if (x.buy == null) return `<b class="bg-buy na" title="Counted in another unit">–</b>`;
@@ -172,9 +175,52 @@ function renderGuide(body){
   $("#bgTitle").textContent = "What to buy.";
   $("#bgMeta").textContent = nMonths ? `Usual = monthly average of ${receipts.length} ${receipts.length === 1 ? "receipt" : "receipts"}, ${monthName(months[0])}${nMonths > 1 ? ` to ${monthName(months[months.length - 1])}` : ""} · ${toBuy.length} to buy${done ? ` · ${done} in the cart` : ""}` : "No receipts yet.";
   $("#bgClear").hidden = !ticks.size;
-  body.innerHTML = (reg.length ? groupHtml(groups(reg), nMonths) : `<p class="hist-empty">No regular items yet.</p>`)
+  body.innerHTML = `<button class="bg-countbtn" type="button"><span>Count at home<small>Before you go: update what's at home, then come back here.</small></span><span class="arch-go" aria-hidden="true">›</span></button>`
+    + (reg.length ? groupHtml(groups(reg), nMonths) : `<p class="hist-empty">No regular items yet.</p>`)
     + (other.length ? `<button class="bg-more" type="button" aria-expanded="${showOther}"><span>Not bought regularly<small>${other.length} items · tap one to set a usual amount</small></span>${chev}</button>${showOther ? groupHtml(groups(other), nMonths) : ""}` : "");
 }
+/* ---------- Count at home: one form for the regular items, saved as today's count ---------- */
+const parseQty = t => { const v = String(t).trim().replace(",", "."); if (v === "") return null; const n = Number(v); return isFinite(n) && n >= 0 && n <= 100000 ? n : NaN; };
+function countRows(){   // regular items in the main list's category order (the order you walk the house)
+  const { rows } = model(), reg = rows.filter(x => x.regular), order = new Map(A.CATS.map((c, k) => [c.id, k]));
+  return reg.sort((a, b) => (order.get(a.cat) ?? 99) - (order.get(b.cat) ?? 99) || a.no - b.no);
+}
+function countState(){
+  const vals = Object.entries(draft).map(([id, t]) => [id, parseQty(t)]).filter(([, n]) => n !== null);
+  return { n: vals.filter(([, n]) => !isNaN(n)).length, bad: vals.filter(([, n]) => isNaN(n)).length };
+}
+function countFoot(){ const { n, bad } = countState(), b = $("#bgCountSave");
+  b.disabled = !n || bad > 0 || busy; b.textContent = bad ? "Check the amounts" : n ? `Save ${n} ${n === 1 ? "count" : "counts"}` : "Save"; }
+function renderCount(body){
+  const rows = countRows(), cats = Object.fromEntries(A.CATS.map(c => [c.id, c]));
+  $("#bgTitle").textContent = "Count at home.";
+  $("#bgMeta").textContent = "Type what's at home now. Leave a box empty if you didn't check it; its last count stays.";
+  const gs = []; rows.forEach(x => { const g = gs[gs.length - 1]; if (g && g.cat === x.cat) g.rows.push(x); else gs.push({ cat: x.cat, rows: [x] }); });
+  body.innerHTML = gs.map(g => { const c = cats[g.cat] || { name: "Other", hue: "#86868B" };
+    return `<section class="shop-cat"><h3><i class="dot" style="--hue:${esc(c.hue)}"></i>${esc(c.name)}<span>${g.rows.length}</span></h3><ul>${g.rows.map(x => {
+      const last = x.haveRaw ? `Last: ${A.qtyTxt({ qty: Number(x.haveRaw.qty), unit: x.haveRaw.unit })} · ${A.shortDay(x.haveDay)}` : "Not counted yet";
+      const v = draft[x.id] ?? "", bad = isNaN(parseQty(v));
+      return `<li class="bg-count${v !== "" ? " filled" : ""}${bad ? " bad" : ""}" data-id="${esc(x.id)}"><span class="si-t"><span class="si-name" dir="auto">${esc(x.name)}${x.beta ? ` <em class="tag">New</em>` : ""}</span><span class="si-sub${stale(x.haveDay) ? " old" : ""}">${esc(last)}</span></span>
+        <button type="button" class="bg-zero" aria-label="None of ${esc(x.name)} left">0</button>
+        <span class="bg-in"><input type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" value="${esc(v)}" aria-label="${esc(x.name)} at home, in ${esc(x.unit)}"><i>${esc(x.unit)}</i></span></li>`; }).join("")}</ul></section>`; }).join("")
+    || `<p class="hist-empty">No regular items yet.</p>`;
+  countFoot();
+}
+async function saveCount(){
+  const { n, bad } = countState(); if (busy || !n || bad) return;
+  const items = Object.fromEntries(allItems().map(i => [i.id, i]));
+  const vals = Object.entries(draft).map(([id, t]) => [items[id], parseQty(t)]).filter(([it, q]) => it && q !== null && !isNaN(q));
+  const main = vals.filter(([it]) => !it.beta).map(([it, q]) => ({ item_id: it.id, qty: q, unit: it.unit }));
+  const extra = vals.filter(([it]) => it.beta), who = A.myProfile() ? A.me.id : null, now = new Date().toISOString();
+  busy = true; countFoot(); fb.tap();
+  const r1 = main.length ? await A.saveCounts(main) : {};
+  const r2 = extra.length && !r1.error ? await A.sb.from("purchases_beta_stock").upsert(extra.map(([it, q]) => ({ item_key: it.id, qty: Math.round(q * 100) / 100, unit: it.unit, counted_by: who, counted_at: now })), { onConflict: "item_key" }) : {};
+  busy = false;
+  if (r1.error || r2.error){ countFoot(); fb.error(); toast(r1.error === "profile" ? "Add your name in Profile first." : r1.error ? "Couldn't save the counts. Check your connection." : "Main list saved, but the new items weren't. Try again."); if (!r1.error) main.forEach(m => delete draft[m.item_id]); return; }
+  fb.success(); toast(`Saved ${vals.length} ${vals.length === 1 ? "count" : "counts"}. The guide is up to date.`);
+  counting = false; draft = {}; render(); $("#bgBody").scrollTop = 0; refresh();
+}
+
 function renderReceipts(body){
   $("#bgClear").hidden = true;
   if (!receiptView){
@@ -198,10 +244,12 @@ function render(){
   if (!dlg.open) return;
   const body = $("#bgBody"), seg = dlg.querySelector(".bg-seg");
   seg.dataset.sel = tab; seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
-  $("#bgBack").hidden = !(tab === "receipts" && receiptView); seg.hidden = tab === "receipts" && !!receiptView;
+  const sub = counting || (tab === "receipts" && !!receiptView);
+  $("#bgBack").hidden = !sub; seg.hidden = sub; $("#bgBackLbl").textContent = counting ? "Buying guide" : "All receipts";
+  $("#bgBtns").hidden = counting; $("#bgCountBtns").hidden = !counting; if (counting) $("#bgClear").hidden = true;
   if (ok === null){ $("#bgMeta").textContent = ""; body.innerHTML = `<p class="hist-empty">Loading.</p>`; return; }
   if (!ok){ $("#bgMeta").textContent = ""; $("#bgClear").hidden = true; body.innerHTML = `<p class="hist-empty">The buying guide isn't switched on yet.<br>The rest of the app works as usual.</p>`; return; }
-  tab === "guide" ? renderGuide(body) : renderReceipts(body);
+  counting ? renderCount(body) : tab === "guide" ? renderGuide(body) : renderReceipts(body);
 }
 function keepScroll(f){ const b = $("#bgBody"), y = b.scrollTop; f(); b.scrollTop = y; }
 
@@ -237,16 +285,32 @@ $("#bgBody").addEventListener("click", e => {
   const av = e.target.closest(".bg-avg"); if (av){ fb.tap(); useAverage(av.dataset.id); return; }
   if (e.target.closest(".bg-more")){ fb.tap(); showOther = !showOther; keepScroll(render); return; }
   const ro = e.target.closest("[data-rid]");
-  if (ro){ fb.tap(); receiptView = receipts.find(r => r.id === Number(ro.dataset.rid)) || null; render(); $("#bgBody").scrollTop = 0; }
+  if (ro){ fb.tap(); receiptView = receipts.find(r => r.id === Number(ro.dataset.rid)) || null; render(); $("#bgBody").scrollTop = 0; return; }
+  if (e.target.closest(".bg-countbtn")){ fb.tap(); counting = true; draft = {}; render(); $("#bgBody").scrollTop = 0; return; }
+  const z = e.target.closest(".bg-zero");
+  if (z){ const li = z.closest(".bg-count"), inp = li.querySelector("input"); fb.tap(); inp.value = "0"; inp.dispatchEvent(new Event("input", { bubbles: true })); }
 });
+$("#bgBody").addEventListener("input", e => {
+  const li = e.target.closest(".bg-count"); if (!li) return; const v = e.target.value;
+  if (v.trim() === "") delete draft[li.dataset.id]; else draft[li.dataset.id] = v;
+  li.classList.toggle("filled", v.trim() !== ""); li.classList.toggle("bad", isNaN(parseQty(v))); countFoot();
+});
+$("#bgBody").addEventListener("keydown", e => {   // Return moves to the next box
+  if (e.key !== "Enter" || !e.target.closest(".bg-count")) return; e.preventDefault();
+  const all = [...$("#bgBody").querySelectorAll(".bg-count input")], i = all.indexOf(e.target);
+  if (all[i + 1]) all[i + 1].focus(); else e.target.blur();
+});
+const leaveCount = () => { if (Object.keys(draft).length && !confirm("Leave without saving these counts?")) return; fb.tap(); counting = false; draft = {}; render(); $("#bgBody").scrollTop = 0; };
+$("#bgCountCancel").onclick = leaveCount;
+$("#bgCountSave").onclick = saveCount;
 dlg.querySelector(".bg-seg").addEventListener("click", e => { const b = e.target.closest("[data-tab]"); if (!b || b.dataset.tab === tab) return; fb.tap(); tab = b.dataset.tab; receiptView = null; render(); $("#bgBody").scrollTop = 0; });
-$("#bgBack").onclick = () => { fb.tap(); receiptView = null; render(); $("#bgBody").scrollTop = 0; };
+$("#bgBack").onclick = () => { if (counting){ leaveCount(); return; } fb.tap(); receiptView = null; render(); $("#bgBody").scrollTop = 0; };
 $("#bgClear").onclick = () => { fb.tap(); ticks.clear(); saveTicks(); keepScroll(render); };
 $("#bgDone").onclick = () => { fb.tap(); dlg.close(); };
-document.addEventListener("purchases:data", () => { if (dlg.open) keepScroll(render); });   // a new count changes "Have"
+document.addEventListener("purchases:data", () => { if (dlg.open && !counting) keepScroll(render); });   // never redraw the form while typing   // a new count changes "Have"
 document.addEventListener("purchases:beta-open", () => {
   if (!allowed()) return;
-  ticks = getTicks(); tab = "guide"; receiptView = null; openRow = null;
+  ticks = getTicks(); tab = "guide"; receiptView = null; openRow = null; counting = false; draft = {};
   dlg.showModal(); render(); $("#bgBody").scrollTop = 0; refresh();
 });
 })();

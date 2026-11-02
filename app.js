@@ -429,6 +429,30 @@ $("#confirmBtn").onclick = async () => {
   cache(); setSave("saved", "Saved"); render(); renderHistory(); fb.success();
 };
 
+/* ---------- counts from the Buying guide's "Count at home" form: merged into today's saved list ---------- */
+async function saveCounts(rows){   // rows: [{item_id, qty, unit}]; other items already counted today are kept
+  if (!sb) return { error: "offline" };
+  if (!myProfile()) return { error: "profile" };
+  const day = dayKey(), cur = await sb.from("purchases_sessions").select("items").eq("day", day).maybeSingle();   // fresh copy, in case someone saved since
+  if (cur.error) return { error: cur.error };
+  const clean = rows.map(r => ({ item_id: r.item_id, qty: Math.max(0, Math.min(100000, Math.round((Number(r.qty) || 0) * 100) / 100)), unit: r.unit }));
+  const map = new Map(((cur.data && cur.data.items) || []).map(r => [r.item_id, r]));
+  clean.forEach(r => map.set(r.item_id, r));
+  const order = id => byId[id] ? byId[id].no : 1e6, items = [...map.values()].sort((a, b) => order(a.item_id) - order(b.item_id));
+  const draft = editDay ? todayStash : isDirty() ? stock : null;   // unsaved picks for today keep the new counts too, so a later Confirm can't undo them
+  saving = true;
+  const { error } = await sb.from("purchases_sessions").upsert({ day, items, saved_by: DEVICE, saved_by_profile: me.id });
+  saving = false;
+  if (error) return { error };
+  const i = sessions.findIndex(s => s.day === day), row = { day, items, saved_by_profile: me.id, updated_at: new Date().toISOString() };
+  if (i >= 0) sessions[i] = row; else { sessions.push(row); sessions.sort((a, b) => a.day < b.day ? 1 : -1); }
+  if (draft) clean.forEach(r => { draft[r.item_id] = { qty: r.qty, unit: r.unit }; });
+  else if (!editDay) loadDay();
+  if (selected && !editDay) mountPicker(catsEl.querySelector(`.item[data-id="${selected}"]`));   // like refreshSessions
+  refreshActivity(); cache(); render(); renderHistory();
+  return {};
+}
+
 /* ---------- admin passcode dialog: Full Reset, or deleting one archived period ---------- */
 const dlg = $("#resetDlg");
 let resetMode = null;   // null = Full Reset, otherwise the archive row being deleted
@@ -1004,7 +1028,7 @@ async function load(){
   sb.channel("purchases-ticks").on(...pg("purchases_shop_ticks", debounce(refreshTicks, 200))).subscribe();
 }
 /* Read-only hooks for beta.js (Buying guide). The stable app never depends on them. */
-window.PurchasesApp = { sb, me, myProfile, latest, shopCats, hueOf, fb, toast, esc, fmt, longDate, shortDay, dayKey, parseDay, qtyTxt,
+window.PurchasesApp = { sb, me, myProfile, latest, saveCounts, shopCats, hueOf, fb, toast, esc, fmt, longDate, shortDay, dayKey, parseDay, qtyTxt,
   get CATS(){ return CATS; }, get ITEMS(){ return ITEMS; }, get loaded(){ return loaded; } };
 load();
 })();

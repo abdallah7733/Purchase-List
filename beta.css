@@ -45,3 +45,21 @@
 .bg-amt{flex:none;display:flex;flex-direction:column;align-items:flex-end;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bg-amt small{font-size:13px;color:var(--text-3)}
 .shop-cat .bg-hist{border:0;border-radius:0;overflow:visible}
+/* Count at home */
+#bgBackLbl{font-weight:inherit}
+.bg-countbtn{all:unset;box-sizing:border-box;width:100%;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;margin:10px 0 2px;padding:14px 18px;border-radius:var(--r);background:var(--blue-soft);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.bg-countbtn>span:first-child{display:flex;flex-direction:column;font-size:17px;font-weight:600;color:var(--blue)}
+.bg-countbtn small{font-size:13px;font-weight:400;color:var(--text-2)}
+.bg-countbtn .arch-go{color:var(--blue)}
+.bg-countbtn:active{opacity:.7}
+.bg-count{display:flex;align-items:center;gap:10px;min-height:60px;padding:8px 12px 8px 14px;border-top:1px solid var(--hair)}
+.bg-count:first-child{border-top:0}
+.bg-count .si-sub.old{color:#B25000}
+.bg-count .bg-in{flex:none}
+.bg-count .bg-in input{flex:none;width:84px;height:40px;text-align:right;font-variant-numeric:tabular-nums}
+.bg-count .bg-in i{min-width:34px;font-size:14px}
+.bg-count.filled .bg-in input{border-color:var(--blue);background:var(--blue-soft)}
+.bg-count.bad .bg-in input{border-color:var(--red);background:rgba(227,0,0,.06)}
+.bg-zero{all:unset;box-sizing:border-box;flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);font-size:15px;color:var(--text-2);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.bg-zero:active{background:var(--bg-alt)}
+#bgCountSave:disabled{opacity:.4;cursor:default}
