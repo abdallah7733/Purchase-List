@@ -17,6 +17,7 @@
 <link rel="shortcut icon" href="/favicon.ico?v=basket">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/beta.css">
 </head>
 <body>
 <header class="gnav" id="gnav">
@@ -40,6 +41,7 @@
     <li><button type="button" data-go="cats">Categories</button></li>
     <li><button type="button" data-go="add">Add item</button></li>
     <li id="seasonalMenu" hidden><button type="button" data-go="seasonal">Seasonal item</button></li>
+    <li id="betaMenu" hidden><button type="button" data-go="beta">Buying guide <em class="tag">Beta</em></button></li>
   </ul>
   <p class="menu-label">More</p>
   <ul class="menu-more">
@@ -178,5 +180,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js"></script>
 <script src="/config.js"></script>
 <script src="/app.js"></script>
+<script src="/beta.js"></script>
 </body>
 </html>
