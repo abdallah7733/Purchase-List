@@ -1,7 +1,8 @@
 /* Buying guide (Beta): usual monthly amount from supermarket receipts, compared with what's at home.
    Usual = everything bought of an item on the receipts / number of months the receipts cover (or a hand-set amount).
-   Have  = the item's latest count in the main list (Beta-only items keep their own count).
-   Buy   = Usual - Have, never below 0.
+   Have  = the newest count: Count at home (kept in the Beta) or the main list (you or Maguie), whichever is more recent.
+   Buy   = Usual - Have, never below 0. Items you can't count (spices, dish soap…) are marked Low or Enough instead:
+           Low = buy what you usually buy at once, Enough = nothing to buy.
    Only shown on the Beta profile (name "Abdallah"), or on a device opened once with ?beta=1 (?beta=0 hides it). */
 (() => {
 const A = window.PurchasesApp; if (!A) return;
@@ -44,7 +45,13 @@ document.body.appendChild(dlg);
 
 let ok = null, receipts = [], lines = [], betaItems = [], usualSet = {}, betaStock = {};
 let tab = "guide", receiptView = null, openRow = null, showOther = false, busy = false;
-let counting = false, draft = {};   // "Count at home" form: item id -> typed text
+let counting = false, draft = {}, lvlDraft = {}, modeDraft = {};   // "Count at home" form: typed amounts, Low/Enough picks, switched rows
+
+/* Items checked by eye (Low / Enough) instead of counted, until you switch a row. All spices, plus these. */
+const LEVEL_CAT = 3;
+const LEVEL_IDS = new Set(["cooking-oil", "olive-oil", "vinegar", "mustard", "mayonnaise", "white-honey", "black-honey", "tahini", "nescafe",
+  "dish-soap", "clothes-washing-gel", "black-clothes-washing-gel", "clorox-kitchen-cleaner-spray", "glance", "vanish", "ciff"]);
+const LEVEL = "level";   // purchases_beta_stock.unit for a Low / Enough check: qty 0 = Low, 1 = Enough
 
 async function fetchAllRows(make){   // page past the API's 1000-row cap
   const out = []; for (let from = 0; ; from += 1000){
@@ -60,12 +67,12 @@ async function refresh(){
     fetchAllRows(() => sb.from("purchases_receipt_lines").select("receipt_id,line_no,name_ar,name_en,qty,qty_unit,line_total,discount,item_key,app_qty,app_unit,status,note").order("receipt_id").order("line_no")),
     sb.from("purchases_beta_items").select("id,name,category_id,unit,sort").order("sort"),
     sb.from("purchases_usual").select("item_key,qty,unit,updated_at"),
-    sb.from("purchases_beta_stock").select("item_key,qty,unit,counted_at")]);
+    sb.from("purchases_beta_stock").select("item_key,qty,unit,counted_by,counted_at")]);
   ok = !(r.error || l.error || b.error || u.error || s.error);
   if (ok){
     receipts = r.data; lines = l.data; betaItems = b.data;
     usualSet = Object.fromEntries(u.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit }]));
-    betaStock = Object.fromEntries(s.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit, day: A.dayKey(new Date(x.counted_at)) }]));
+    betaStock = Object.fromEntries(s.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit, by: x.counted_by || null, day: A.dayKey(new Date(x.counted_at)) }]));
     if (receiptView) receiptView = receipts.find(x => x.id === receiptView.id) || null;
   }
   if (dlg.open && !counting) keepScroll(render);
@@ -83,6 +90,7 @@ function roundBuy(q, u){   // round up to something you can pick off a shelf
   if (u === "g" || u === "ml") return Math.ceil(q / 10 - 1e-6) * 10;
   return Math.round(q);   // packs, cans…: nearest whole one (1.3 cans = 1, 1.7 = 2)
 }
+const roundLow = (q, u) => u === "kg" || u === "L" || u === "g" || u === "ml" ? roundBuy(q, u) : Math.max(1, Math.round(q));
 const niceDate = d => A.parseDay(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const monthName = m => A.parseDay(m + "-01").toLocaleDateString("en-GB", { month: "short", year: "numeric" });
 const money = n => Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -105,15 +113,21 @@ function model(){
     let sum = 0, bad = 0; buys.forEach(b => { const q = conv(b.qty, b.unit, it.unit); if (q == null) bad++; else sum += q; });
     const avg = nMonths ? sum / nMonths : 0, monthsBought = new Set(buys.map(b => monthOf(b.r.bought_on))).size;
     const set = usualSet[it.id], usual = set ? conv(set.qty, set.unit, it.unit) : avg;
-    let have = null, haveDay = null, haveRaw = null;
-    // Have = the newest count: "Count at home" (kept in the Beta) or the main list, whichever is more recent
+    const perBuy = monthsBought ? sum / monthsBought : 0;   // amount in a month you bought it (all receipts that month together)
+    let have = null, haveDay = null, haveRaw = null, lvl = null;
+    // Have = the newest count: "Count at home" (kept in the Beta) or the main list (you or Maguie), whichever is more recent
     const bs = betaStock[it.id], ml = !it.beta && latest[it.id] && latest[it.id][0];
     const h = bs && (!ml || bs.day >= ml.day) ? bs : ml || null;
-    if (h){ haveRaw = h; haveDay = h.day; have = conv(Number(h.qty), h.unit, it.unit); }
-    const regular = !!set || monthsBought >= 2;
-    const buy = usual == null ? null : have == null ? (h ? null : roundBuy(usual, it.unit)) : roundBuy(usual - have, it.unit);
-    const perBuy = monthsBought ? sum / monthsBought : 0;   // amount in a month you bought it (all receipts that month together)
-    return { ...it, buys, avg, perBuy, monthsBought, set: !!set, usual, have, haveDay, haveRaw, regular, buy, bad };
+    // checked by eye unless your last Count at home for it was a number
+    const level = bs ? bs.unit === LEVEL : it.cat === LEVEL_CAT || LEVEL_IDS.has(it.id);
+    if (h){ haveRaw = h; haveDay = h.day;
+      if (h.unit === LEVEL) lvl = Number(h.qty) > 0 ? "ok" : "low"; else have = conv(Number(h.qty), h.unit, it.unit); }
+    const regular = !!set || monthsBought >= 2 || lvl === "low";
+    // Low: buy what you usually buy at once (your set amount if you set one); at least one pack, can…
+    const once = set ? usual : perBuy || null;
+    const buy = lvl === "ok" ? 0 : lvl === "low" ? (once ? roundLow(once, it.unit) : null)
+      : usual == null ? null : have == null ? (h ? null : roundBuy(usual, it.unit)) : roundBuy(usual - have, it.unit);
+    return { ...it, buys, avg, perBuy, once, monthsBought, set: !!set, usual, have, haveDay, haveRaw, lvl, level, regular, buy, bad };
   });
   return { rows, months, nMonths };
 }
@@ -127,12 +141,17 @@ function saveTicks(){ try { localStorage.setItem(TICKS, JSON.stringify({ month: 
 const tickSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>`;
 const chev = `<span class="chev" aria-hidden="true"><i></i><i></i></span>`;
 const stale = day => day && (A.parseDay(A.dayKey()) - A.parseDay(day)) / 864e5 > 7;
+const who = by => !by ? "" : A.myProfile() && by === A.me.id ? "you, " : `${A.whoName(by)}, `;
+const when = x => `${who(x.haveRaw.by)}${A.shortDay(x.haveDay)}${stale(x.haveDay) ? " (over a week old)" : ""}`;
+const rawTxt = r => r.unit === LEVEL ? (Number(r.qty) > 0 ? "Enough" : "Low") : A.qtyTxt({ qty: Number(r.qty), unit: r.unit });
 function haveTxt(x){
   if (!x.haveRaw) return null;
-  if (x.have == null) return `${A.qtyTxt({ qty: Number(x.haveRaw.qty), unit: x.haveRaw.unit })} (other unit)`;
-  return `${qty(x.have, x.unit)} · ${A.shortDay(x.haveDay)}${stale(x.haveDay) ? " (over a week old)" : ""}`;
+  if (x.lvl) return `${x.lvl === "low" ? "Low" : "Enough"} · ${when(x)}`;
+  if (x.have == null) return `${rawTxt(x.haveRaw)} (other unit)`;
+  return `${qty(x.have, x.unit)} · ${when(x)}`;
 }
 function buyCell(x){
+  if (x.buy == null && x.lvl === "low") return `<b class="bg-buy">Needed</b>`;
   if (x.buy == null) return `<b class="bg-buy na" title="Counted in another unit">–</b>`;
   if (x.buy === 0) return `<b class="bg-buy enough">Enough</b>`;
   return `<b class="bg-buy">${esc(qty(x.buy, x.unit))}</b>`;
@@ -153,12 +172,14 @@ function detail(x, nMonths){
       <label><span>Have at home</span><span class="bg-in"><input type="number" inputmode="decimal" min="0" max="100000" step="any" value="${x.haveRaw ? esc(fmt(Number(x.haveRaw.qty))) : ""}" aria-label="Amount of ${esc(x.name)} at home"><i>${esc(x.unit)}</i></span></label>
       <button class="pill outline sm" type="submit">Save</button>
     </form><p class="bg-note">${esc(x.name)} is only in the Beta for now, so its count is kept here, not in the main list.</p>`
-      : `<p class="bg-note">Have is your newest count: from Count at home (kept in the Beta) or from the main list, whichever is more recent.</p>`}
+      : `<p class="bg-note">Have is the newest count: from Count at home (kept in the Beta) or from the main list (you or Maguie), whichever is more recent.</p>`}
+    ${x.level ? `<p class="bg-note">You check this one by eye in Count at home. Low means buy ${x.once ? `what you usually buy at once: <b>${esc(qty(x.once, x.unit))}</b>` : "it (no amount on your receipts yet; set a usual amount above)"}.</p>` : ""}
   </div>`;
 }
 function row(x, nMonths){
   const open = openRow === x.id, t = ticks.has(x.id);
-  const sub = x.regular ? `Usual ${qty(x.usual, x.unit)}${x.set ? " (set by you)" : ""} · ${haveTxt(x) ? `Have ${haveTxt(x)}` : "Not counted yet"}`
+  const sub = x.lvl === "low" ? `${haveTxt(x)}${x.once ? ` · usually ${qty(x.once, x.unit)} at a time` : ""}`
+    : x.regular ? `Usual ${qty(x.usual, x.unit)}${x.set ? " (set by you)" : ""} · ${haveTxt(x) ? `Have ${haveTxt(x)}` : "Not counted yet"}`
     : x.buys.length ? `Bought once · ${niceDate(x.buys[0].r.bought_on)} · ${qty(x.buys[0].qty, x.buys[0].unit)}` : "Not on your receipts yet";
   return `<li class="shop-item bg-item${t ? " ticked" : ""}${open ? " open" : ""}" data-id="${esc(x.id)}">
     <div class="bg-line">${x.regular ? `<button type="button" class="tick" role="checkbox" aria-checked="${t}" aria-label="${esc(x.name)} in the cart">${tickSvg}</button>` : `<span class="bg-pad"></span>`}
@@ -176,7 +197,7 @@ const groupHtml = (gs, nMonths) => gs.map(g => `<section class="shop-cat"><h3><i
 function renderGuide(body){
   const { rows, months, nMonths } = model();
   const reg = rows.filter(x => x.regular), other = rows.filter(x => !x.regular);
-  const toBuy = reg.filter(x => x.buy), done = toBuy.filter(x => ticks.has(x.id)).length;
+  const toBuy = reg.filter(x => x.buy || x.lvl === "low"), done = toBuy.filter(x => ticks.has(x.id)).length;
   $("#bgTitle").textContent = "What to buy.";
   $("#bgMeta").textContent = nMonths ? `Usual = monthly average of ${receipts.length} ${receipts.length === 1 ? "receipt" : "receipts"}, ${monthName(months[0])}${nMonths > 1 ? ` to ${monthName(months[months.length - 1])}` : ""} · ${toBuy.length} to buy${done ? ` · ${done} in the cart` : ""}` : "No receipts yet.";
   $("#bgClear").hidden = !ticks.size;
@@ -186,43 +207,51 @@ function renderGuide(body){
 }
 /* ---------- Count at home: one form for the regular items, saved as today's count ---------- */
 const parseQty = t => { const v = String(t).trim().replace(",", "."); if (v === "") return null; const n = Number(v); return isFinite(n) && n >= 0 && n <= 100000 ? n : NaN; };
-function countRows(){   // regular items in the main list's category order (the order you walk the house)
-  const { rows } = model(), reg = rows.filter(x => x.regular), order = new Map(A.CATS.map((c, k) => [c.id, k]));
+function countRows(){   // regular items + everything you check by eye, in the main list's category order (the order you walk the house)
+  const { rows } = model(), reg = rows.filter(x => x.regular || x.level || betaStock[x.id]), order = new Map(A.CATS.map((c, k) => [c.id, k]));
   return reg.sort((a, b) => (order.get(a.cat) ?? 99) - (order.get(b.cat) ?? 99) || a.no - b.no);
 }
 function countState(){
   const vals = Object.entries(draft).map(([id, t]) => [id, parseQty(t)]).filter(([, n]) => n !== null);
-  return { n: vals.filter(([, n]) => !isNaN(n)).length, bad: vals.filter(([, n]) => isNaN(n)).length };
+  return { n: vals.filter(([, n]) => !isNaN(n)).length + Object.keys(lvlDraft).length, bad: vals.filter(([, n]) => isNaN(n)).length };
 }
+const isLevel = x => modeDraft[x.id] ?? x.level;
 function countFoot(){ const { n, bad } = countState(), b = $("#bgCountSave");
   b.disabled = !n || bad > 0 || busy; b.textContent = bad ? "Check the amounts" : n ? `Save ${n} ${n === 1 ? "count" : "counts"}` : "Save"; }
 function renderCount(body){
   const rows = countRows(), cats = Object.fromEntries(A.CATS.map(c => [c.id, c]));
   $("#bgTitle").textContent = "Count at home.";
-  $("#bgMeta").textContent = "Type what's at home now. Leave a box empty if you didn't check it; its last count stays.";
+  $("#bgMeta").textContent = "Type what's at home, or tap Low / Enough for things you can't count. Skip anything you didn't check; its last count stays.";
   const gs = []; rows.forEach(x => { const g = gs[gs.length - 1]; if (g && g.cat === x.cat) g.rows.push(x); else gs.push({ cat: x.cat, rows: [x] }); });
   body.innerHTML = gs.map(g => { const c = cats[g.cat] || { name: "Other", hue: "#86868B" };
     return `<section class="shop-cat"><h3><i class="dot" style="--hue:${esc(c.hue)}"></i>${esc(c.name)}<span>${g.rows.length}</span></h3><ul>${g.rows.map(x => {
-      const last = x.haveRaw ? `Last: ${A.qtyTxt({ qty: Number(x.haveRaw.qty), unit: x.haveRaw.unit })} · ${A.shortDay(x.haveDay)}` : "Not counted yet";
+      const last = x.haveRaw ? `Last: ${rawTxt(x.haveRaw)} · ${when(x)}` : "Not counted yet";
+      const head = `<span class="si-t"><span class="si-name" dir="auto">${esc(x.name)}${x.beta ? ` <em class="tag">New</em>` : ""}</span><span class="si-sub${stale(x.haveDay) ? " old" : ""}">${esc(last)}</span></span>`;
+      if (isLevel(x)){ const l = lvlDraft[x.id];
+        return `<li class="bg-count lvl${l ? " filled" : ""}" data-id="${esc(x.id)}">${head}
+        <span class="bg-lvl" role="group" aria-label="${esc(x.name)} at home"><button type="button" data-lvl="low" aria-pressed="${l === "low"}">Low</button><button type="button" data-lvl="ok" aria-pressed="${l === "ok"}">Enough</button></span>
+        <button type="button" class="linkbtn bg-mode" data-mode="count">Count it instead</button></li>`; }
       const v = draft[x.id] ?? "", bad = isNaN(parseQty(v));
-      return `<li class="bg-count${v !== "" ? " filled" : ""}${bad ? " bad" : ""}" data-id="${esc(x.id)}"><span class="si-t"><span class="si-name" dir="auto">${esc(x.name)}${x.beta ? ` <em class="tag">New</em>` : ""}</span><span class="si-sub${stale(x.haveDay) ? " old" : ""}">${esc(last)}</span></span>
+      return `<li class="bg-count${v !== "" ? " filled" : ""}${bad ? " bad" : ""}" data-id="${esc(x.id)}">${head}
         <button type="button" class="bg-zero" aria-label="None of ${esc(x.name)} left">0</button>
-        <span class="bg-in"><input type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" value="${esc(v)}" aria-label="${esc(x.name)} at home, in ${esc(x.unit)}"><i>${esc(x.unit)}</i></span></li>`; }).join("")}</ul></section>`; }).join("")
+        <span class="bg-in"><input type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" value="${esc(v)}" aria-label="${esc(x.name)} at home, in ${esc(x.unit)}"><i>${esc(x.unit)}</i></span>
+        <button type="button" class="linkbtn bg-mode" data-mode="level">Can't count it? Low / Enough</button></li>`; }).join("")}</ul></section>`; }).join("")
     || `<p class="hist-empty">No regular items yet.</p>`;
   countFoot();
 }
 async function saveCount(){
   const { n, bad } = countState(); if (busy || !n || bad) return;
   const items = Object.fromEntries(allItems().map(i => [i.id, i]));
-  const vals = Object.entries(draft).map(([id, t]) => [items[id], parseQty(t)]).filter(([it, q]) => it && q !== null && !isNaN(q));
-  const who = A.myProfile() ? A.me.id : null, now = new Date().toISOString();
+  const vals = Object.entries(draft).map(([id, t]) => [items[id], parseQty(t), null]).filter(([it, q]) => it && q !== null && !isNaN(q))
+    .concat(Object.entries(lvlDraft).filter(([id]) => items[id]).map(([id, l]) => [items[id], l === "ok" ? 1 : 0, LEVEL]));
+  const by = A.myProfile() ? A.me.id : null, now = new Date().toISOString();
   busy = true; countFoot(); fb.tap();
   // Saved only in the Beta (your choice, 3 Nov 2026): the main list and Maguie's view are not touched.
-  const r = await A.sb.from("purchases_beta_stock").upsert(vals.map(([it, q]) => ({ item_key: it.id, qty: Math.round(q * 100) / 100, unit: it.unit, counted_by: who, counted_at: now })), { onConflict: "item_key" });
+  const r = await A.sb.from("purchases_beta_stock").upsert(vals.map(([it, q, u]) => ({ item_key: it.id, qty: Math.round(q * 100) / 100, unit: u || it.unit, counted_by: by, counted_at: now })), { onConflict: "item_key" });
   busy = false;
   if (r.error){ countFoot(); fb.error(); toast(r.error.code === "23503" ? "The Beta needs a small database update first. Nothing was saved." : "Couldn't save the counts. Check your connection."); return; }
   fb.success(); toast(`Saved ${vals.length} ${vals.length === 1 ? "count" : "counts"}. The guide is up to date.`);
-  counting = false; draft = {}; render(); $("#bgBody").scrollTop = 0; refresh();
+  counting = false; draft = {}; lvlDraft = {}; modeDraft = {}; render(); $("#bgBody").scrollTop = 0; refresh();
 }
 
 /* ---------- How often: how many months each item shows up on the receipts ---------- */
@@ -305,7 +334,13 @@ $("#bgBody").addEventListener("click", e => {
   if (e.target.closest(".bg-more")){ fb.tap(); showOther = !showOther; keepScroll(render); return; }
   const ro = e.target.closest("[data-rid]");
   if (ro){ fb.tap(); receiptView = receipts.find(r => r.id === Number(ro.dataset.rid)) || null; render(); $("#bgBody").scrollTop = 0; return; }
-  if (e.target.closest(".bg-countbtn")){ fb.tap(); counting = true; draft = {}; render(); $("#bgBody").scrollTop = 0; return; }
+  if (e.target.closest(".bg-countbtn")){ fb.tap(); counting = true; draft = {}; lvlDraft = {}; modeDraft = {}; render(); $("#bgBody").scrollTop = 0; return; }
+  const lv = e.target.closest("[data-lvl]");
+  if (lv){ const li = lv.closest(".bg-count"), id = li.dataset.id, v = lv.dataset.lvl;
+    if (lvlDraft[id] === v) delete lvlDraft[id]; else lvlDraft[id] = v;
+    fb.tap(); li.classList.toggle("filled", !!lvlDraft[id]); li.querySelectorAll("[data-lvl]").forEach(b => b.setAttribute("aria-pressed", b.dataset.lvl === lvlDraft[id])); countFoot(); return; }
+  const md = e.target.closest(".bg-mode");
+  if (md){ const id = md.closest(".bg-count").dataset.id; fb.tap(); delete draft[id]; delete lvlDraft[id]; modeDraft[id] = md.dataset.mode === "level"; keepScroll(render); return; }
   const z = e.target.closest(".bg-zero");
   if (z){ const li = z.closest(".bg-count"), inp = li.querySelector("input"); fb.tap(); inp.value = "0"; inp.dispatchEvent(new Event("input", { bubbles: true })); }
 });
@@ -319,7 +354,7 @@ $("#bgBody").addEventListener("keydown", e => {   // Return moves to the next bo
   const all = [...$("#bgBody").querySelectorAll(".bg-count input")], i = all.indexOf(e.target);
   if (all[i + 1]) all[i + 1].focus(); else e.target.blur();
 });
-const leaveCount = () => { if (Object.keys(draft).length && !confirm("Leave without saving these counts?")) return; fb.tap(); counting = false; draft = {}; render(); $("#bgBody").scrollTop = 0; };
+const leaveCount = () => { if ((Object.keys(draft).length || Object.keys(lvlDraft).length) && !confirm("Leave without saving these counts?")) return; fb.tap(); counting = false; draft = {}; lvlDraft = {}; modeDraft = {}; render(); $("#bgBody").scrollTop = 0; };
 $("#bgCountCancel").onclick = leaveCount;
 $("#bgCountSave").onclick = saveCount;
 dlg.querySelector(".bg-seg").addEventListener("click", e => { const b = e.target.closest("[data-tab]"); if (!b || b.dataset.tab === tab) return; fb.tap(); tab = b.dataset.tab; receiptView = null; render(); $("#bgBody").scrollTop = 0; });
@@ -329,7 +364,7 @@ $("#bgDone").onclick = () => { fb.tap(); dlg.close(); };
 document.addEventListener("purchases:data", () => { if (dlg.open && !counting) keepScroll(render); });   // never redraw the form while typing   // a new count changes "Have"
 document.addEventListener("purchases:beta-open", () => {
   if (!allowed()) return;
-  ticks = getTicks(); tab = "guide"; receiptView = null; openRow = null; counting = false; draft = {};
+  ticks = getTicks(); tab = "guide"; receiptView = null; openRow = null; counting = false; draft = {}; lvlDraft = {}; modeDraft = {};
   dlg.showModal(); render(); $("#bgBody").scrollTop = 0; refresh();
 });
 })();
