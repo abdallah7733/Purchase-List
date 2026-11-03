@@ -1,8 +1,9 @@
 /* ---------- Buying guide (Beta): its own sheet, built on the shopping-list styles ---------- */
 .bg .eyebrow .tag{margin-left:4px}
-.bg-seg{margin-top:12px;grid-template-columns:1fr 1fr;max-width:320px}
-.bg-seg::before{width:calc(50% - 2px)}
-.bg-seg[data-sel="receipts"]::before{transform:translateX(100%)}
+.bg-seg{margin-top:12px;grid-template-columns:repeat(3,1fr);max-width:360px}
+.bg-seg::before{width:calc((100% - 4px)/3)}
+.bg-seg[data-sel="often"]::before{transform:translateX(100%)}
+.bg-seg[data-sel="receipts"]::before{transform:translateX(200%)}
 .bg-item{display:block;padding:0;cursor:default}
 .bg-item:active{background:none}
 .bg-line{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 8px 8px 10px}
@@ -63,3 +64,7 @@
 .bg-zero{all:unset;box-sizing:border-box;flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);font-size:15px;color:var(--text-2);cursor:pointer;-webkit-tap-highlight-color:transparent}
 .bg-zero:active{background:var(--bg-alt)}
 #bgCountSave:disabled{opacity:.4;cursor:default}
+/* How often */
+.bg-often li{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 14px;border-top:1px solid var(--hair)}
+.bg-often li:first-child{border-top:0}
+.bg-often .dot{flex:none}

@@ -30,6 +30,7 @@ dlg.innerHTML = `<div class="shop-head">
     <p class="shop-meta" id="bgMeta"></p>
     <div class="seg bg-seg" role="tablist" aria-label="Buying guide view" data-sel="guide">
       <button type="button" role="tab" data-tab="guide" aria-selected="true">Guide</button>
+      <button type="button" role="tab" data-tab="often" aria-selected="false">How often</button>
       <button type="button" role="tab" data-tab="receipts" aria-selected="false">Receipts</button>
     </div>
   </div>
@@ -105,11 +106,14 @@ function model(){
     const avg = nMonths ? sum / nMonths : 0, monthsBought = new Set(buys.map(b => monthOf(b.r.bought_on))).size;
     const set = usualSet[it.id], usual = set ? conv(set.qty, set.unit, it.unit) : avg;
     let have = null, haveDay = null, haveRaw = null;
-    const h = it.beta ? betaStock[it.id] : latest[it.id] && latest[it.id][0];
+    // Have = the newest count: "Count at home" (kept in the Beta) or the main list, whichever is more recent
+    const bs = betaStock[it.id], ml = !it.beta && latest[it.id] && latest[it.id][0];
+    const h = bs && (!ml || bs.day >= ml.day) ? bs : ml || null;
     if (h){ haveRaw = h; haveDay = h.day; have = conv(Number(h.qty), h.unit, it.unit); }
     const regular = !!set || monthsBought >= 2;
     const buy = usual == null ? null : have == null ? (h ? null : roundBuy(usual, it.unit)) : roundBuy(usual - have, it.unit);
-    return { ...it, buys, avg, monthsBought, set: !!set, usual, have, haveDay, haveRaw, regular, buy, bad };
+    const perBuy = monthsBought ? sum / monthsBought : 0;   // amount in a month you bought it (all receipts that month together)
+    return { ...it, buys, avg, perBuy, monthsBought, set: !!set, usual, have, haveDay, haveRaw, regular, buy, bad };
   });
   return { rows, months, nMonths };
 }
@@ -133,10 +137,11 @@ function buyCell(x){
   if (x.buy === 0) return `<b class="bg-buy enough">Enough</b>`;
   return `<b class="bg-buy">${esc(qty(x.buy, x.unit))}</b>`;
 }
+const freqTxt = (x, n) => !x.monthsBought ? "Not on your receipts yet" : x.monthsBought >= n ? "Every month" : `In ${x.monthsBought} of ${n} months`;
 function detail(x, nMonths){
   const hist = x.buys.length ? `<ul class="bg-hist">${x.buys.map(b => `<li><span>${esc(niceDate(b.r.bought_on))} · ${esc(b.r.store)}</span><b>${esc(qty(b.qty, b.unit))}</b></li>`).join("")}</ul>`
     : `<p class="bg-note">Not on any receipt yet.</p>`;
-  const avg = x.buys.length ? `Receipt average: <b>${esc(qty(x.avg, x.unit))}</b> a month (${nMonths} ${nMonths === 1 ? "month" : "months"}${x.bad ? `, ${x.bad} line${x.bad === 1 ? "" : "s"} in another unit left out` : ""}).` : "";
+  const avg = x.buys.length ? `How often: <b>${esc(freqTxt(x, nMonths))}</b>, about ${esc(qty(x.perBuy, x.unit))} each time.<br>Receipt average: <b>${esc(qty(x.avg, x.unit))}</b> a month (${nMonths} ${nMonths === 1 ? "month" : "months"}${x.bad ? `, ${x.bad} line${x.bad === 1 ? "" : "s"} in another unit left out` : ""}).` : "";
   return `<div class="bg-detail">
     ${hist}${avg ? `<p class="bg-note">${avg}</p>` : ""}
     <form class="bg-edit" data-kind="usual" data-id="${esc(x.id)}">
@@ -148,7 +153,7 @@ function detail(x, nMonths){
       <label><span>Have at home</span><span class="bg-in"><input type="number" inputmode="decimal" min="0" max="100000" step="any" value="${x.haveRaw ? esc(fmt(Number(x.haveRaw.qty))) : ""}" aria-label="Amount of ${esc(x.name)} at home"><i>${esc(x.unit)}</i></span></label>
       <button class="pill outline sm" type="submit">Save</button>
     </form><p class="bg-note">${esc(x.name)} is only in the Beta for now, so its count is kept here, not in the main list.</p>`
-      : `<p class="bg-note">Have is your latest count in the main list.</p>`}
+      : `<p class="bg-note">Have is your newest count: from Count at home (kept in the Beta) or from the main list, whichever is more recent.</p>`}
   </div>`;
 }
 function row(x, nMonths){
@@ -210,15 +215,29 @@ async function saveCount(){
   const { n, bad } = countState(); if (busy || !n || bad) return;
   const items = Object.fromEntries(allItems().map(i => [i.id, i]));
   const vals = Object.entries(draft).map(([id, t]) => [items[id], parseQty(t)]).filter(([it, q]) => it && q !== null && !isNaN(q));
-  const main = vals.filter(([it]) => !it.beta).map(([it, q]) => ({ item_id: it.id, qty: q, unit: it.unit }));
-  const extra = vals.filter(([it]) => it.beta), who = A.myProfile() ? A.me.id : null, now = new Date().toISOString();
+  const who = A.myProfile() ? A.me.id : null, now = new Date().toISOString();
   busy = true; countFoot(); fb.tap();
-  const r1 = main.length ? await A.saveCounts(main) : {};
-  const r2 = extra.length && !r1.error ? await A.sb.from("purchases_beta_stock").upsert(extra.map(([it, q]) => ({ item_key: it.id, qty: Math.round(q * 100) / 100, unit: it.unit, counted_by: who, counted_at: now })), { onConflict: "item_key" }) : {};
+  // Saved only in the Beta (your choice, 3 Nov 2026): the main list and Maguie's view are not touched.
+  const r = await A.sb.from("purchases_beta_stock").upsert(vals.map(([it, q]) => ({ item_key: it.id, qty: Math.round(q * 100) / 100, unit: it.unit, counted_by: who, counted_at: now })), { onConflict: "item_key" });
   busy = false;
-  if (r1.error || r2.error){ countFoot(); fb.error(); toast(r1.error === "profile" ? "Add your name in Profile first." : r1.error ? "Couldn't save the counts. Check your connection." : "Main list saved, but the new items weren't. Try again."); if (!r1.error) main.forEach(m => delete draft[m.item_id]); return; }
+  if (r.error){ countFoot(); fb.error(); toast(r.error.code === "23503" ? "The Beta needs a small database update first. Nothing was saved." : "Couldn't save the counts. Check your connection."); return; }
   fb.success(); toast(`Saved ${vals.length} ${vals.length === 1 ? "count" : "counts"}. The guide is up to date.`);
   counting = false; draft = {}; render(); $("#bgBody").scrollTop = 0; refresh();
+}
+
+/* ---------- How often: how many months each item shows up on the receipts ---------- */
+function renderOften(body){
+  const { rows, months, nMonths } = model(), bought = rows.filter(x => x.monthsBought), cats = Object.fromEntries(A.CATS.map(c => [c.id, c]));
+  $("#bgClear").hidden = true;
+  $("#bgTitle").textContent = "How often you buy.";
+  $("#bgMeta").textContent = nMonths ? `From ${receipts.length} ${receipts.length === 1 ? "receipt" : "receipts"} over ${nMonths} ${nMonths === 1 ? "month" : "months"} (${monthName(months[0])}${nMonths > 1 ? ` to ${monthName(months[months.length - 1])}` : ""}). More receipts make this more precise.` : "No receipts yet.";
+  const levels = [...new Set(bought.map(x => x.monthsBought))].sort((a, b) => b - a);
+  body.innerHTML = levels.map(m => { const g = bought.filter(x => x.monthsBought === m).sort((a, b) => (cats[a.cat] ? cats[a.cat].sort : 99) - (cats[b.cat] ? cats[b.cat].sort : 99) || a.no - b.no);
+    const title = m >= nMonths ? "Every month" : `${m} of ${nMonths} months`;
+    return `<section class="shop-cat"><h3>${esc(title)}<span>${g.length}</span></h3><ul class="bg-often">${g.map(x => { const last = x.buys[0];
+      return `<li><i class="dot" style="--hue:${esc(cats[x.cat] ? cats[x.cat].hue : "#86868B")}"></i><span class="si-t"><span class="si-name" dir="auto">${esc(x.name)}${x.beta ? ` <em class="tag">New</em>` : ""}</span><span class="si-sub">Last bought ${esc(niceDate(last.r.bought_on))} · ${esc(last.r.store)}</span></span>
+        <span class="bg-amt"><b>${esc(qty(x.perBuy, x.unit))}</b><small>each time</small></span></li>`; }).join("")}</ul></section>`; }).join("")
+    || `<p class="hist-empty">No receipts yet.</p>`;
 }
 
 function renderReceipts(body){
@@ -249,7 +268,7 @@ function render(){
   $("#bgBtns").hidden = counting; $("#bgCountBtns").hidden = !counting; if (counting) $("#bgClear").hidden = true;
   if (ok === null){ $("#bgMeta").textContent = ""; body.innerHTML = `<p class="hist-empty">Loading.</p>`; return; }
   if (!ok){ $("#bgMeta").textContent = ""; $("#bgClear").hidden = true; body.innerHTML = `<p class="hist-empty">The buying guide isn't switched on yet.<br>The rest of the app works as usual.</p>`; return; }
-  counting ? renderCount(body) : tab === "guide" ? renderGuide(body) : renderReceipts(body);
+  counting ? renderCount(body) : tab === "guide" ? renderGuide(body) : tab === "often" ? renderOften(body) : renderReceipts(body);
 }
 function keepScroll(f){ const b = $("#bgBody"), y = b.scrollTop; f(); b.scrollTop = y; }
 
