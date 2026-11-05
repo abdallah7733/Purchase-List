@@ -1,9 +1,10 @@
 /* Buying guide (Beta): usual monthly amount from supermarket receipts, compared with what's at home.
    Usual = everything bought of an item on the receipts / number of months the receipts cover (or a hand-set amount).
-   Have  = the newest count: Count at home (kept in the Beta) or the main list (you or Maguie), whichever is more recent.
+   Have  = the newest count: Count at home (kept in the Beta) or the main list (whoever saved it), whichever is more recent.
    Buy   = Usual - Have, never below 0. Items you can't count (spices, dish soap…) are marked Low or Enough instead:
            Low = buy what you usually buy at once, Enough = nothing to buy.
-   Only shown on the Beta profile (name "Abdallah"), or on a device opened once with ?beta=1 (?beta=0 hides it). */
+   Shown on Abdallah's and Maguie's profiles (they share the same counts and usual amounts; each count shows who made it),
+   or on a device opened once with ?beta=1 (?beta=0 hides it). */
 (() => {
 const A = window.PurchasesApp; if (!A) return;
 const { esc, fmt, fb, toast } = A;
@@ -16,7 +17,7 @@ try {
   if (v === "1" || v === "0"){ localStorage.setItem(FLAG, v); p.delete("beta"); history.replaceState(null, "", location.pathname + (p.toString() ? "?" + p : "") + location.hash); }
 } catch(e){}
 const flag = () => { try { return localStorage.getItem(FLAG); } catch(e){ return null; } };
-const allowed = () => { const f = flag(); if (f === "1") return true; if (f === "0") return false; const p = A.myProfile(); return !!(p && /^\s*abdallah\s*$/i.test(p.name)); };
+const allowed = () => { const f = flag(); if (f === "1") return true; if (f === "0") return false; const p = A.myProfile(); return !!(p && /^\s*(abdallah|maguie)\s*$/i.test(p.name)); };
 const menuLi = $("#betaMenu");
 const gate = () => { if (menuLi) menuLi.hidden = !allowed(); };
 document.addEventListener("purchases:me", gate); gate();
@@ -66,17 +67,19 @@ async function refresh(){
     sb.from("purchases_receipts").select("id,store,branch,bought_on,bought_time,total,paid,pieces").order("bought_on", { ascending: false }).order("id", { ascending: false }),
     fetchAllRows(() => sb.from("purchases_receipt_lines").select("receipt_id,line_no,name_ar,name_en,qty,qty_unit,line_total,discount,item_key,app_qty,app_unit,status,note").order("receipt_id").order("line_no")),
     sb.from("purchases_beta_items").select("id,name,category_id,unit,sort").order("sort"),
-    sb.from("purchases_usual").select("item_key,qty,unit,updated_at"),
+    sb.from("purchases_usual").select("item_key,qty,unit,updated_by,updated_at"),
     sb.from("purchases_beta_stock").select("item_key,qty,unit,counted_by,counted_at")]);
   ok = !(r.error || l.error || b.error || u.error || s.error);
   if (ok){
     receipts = r.data; lines = l.data; betaItems = b.data;
-    usualSet = Object.fromEntries(u.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit }]));
+    usualSet = Object.fromEntries(u.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit, by: x.updated_by || null }]));
     betaStock = Object.fromEntries(s.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit, by: x.counted_by || null, day: A.dayKey(new Date(x.counted_at)) }]));
     if (receiptView) receiptView = receipts.find(x => x.id === receiptView.id) || null;
   }
-  if (dlg.open && !counting) keepScroll(render);
+  if (dlg.open && !counting && !typing()) keepScroll(render);
 }
+// someone typing in the sheet (a usual amount, a count): don't redraw under their fingers
+const typing = () => { const a = document.activeElement; return !!a && dlg.contains(a) && a.tagName === "INPUT"; };
 
 /* ---------- maths ---------- */
 const conv = (q, from, to) => from === to ? q : from === "kg" && to === "g" || from === "L" && to === "ml" ? q * 1000
@@ -115,7 +118,7 @@ function model(){
     const set = usualSet[it.id], usual = set ? conv(set.qty, set.unit, it.unit) : avg;
     const perBuy = monthsBought ? sum / monthsBought : 0;   // amount in a month you bought it (all receipts that month together)
     let have = null, haveDay = null, haveRaw = null, lvl = null;
-    // Have = the newest count: "Count at home" (kept in the Beta) or the main list (you or Maguie), whichever is more recent
+    // Have = the newest count: "Count at home" (kept in the Beta) or the main list (whoever saved it), whichever is more recent
     const bs = betaStock[it.id], ml = !it.beta && latest[it.id] && latest[it.id][0];
     const h = bs && (!ml || bs.day >= ml.day) ? bs : ml || null;
     // checked by eye unless your last Count at home for it was a number
@@ -142,6 +145,7 @@ const tickSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const chev = `<span class="chev" aria-hidden="true"><i></i><i></i></span>`;
 const stale = day => day && (A.parseDay(A.dayKey()) - A.parseDay(day)) / 864e5 > 7;
 const who = by => !by ? "" : A.myProfile() && by === A.me.id ? "you, " : `${A.whoName(by)}, `;
+const setBy = id => { const by = usualSet[id] && usualSet[id].by; return !by ? "hand" : A.myProfile() && by === A.me.id ? "you" : A.whoName(by); };
 const when = x => `${who(x.haveRaw.by)}${A.shortDay(x.haveDay)}${stale(x.haveDay) ? " (over a week old)" : ""}`;
 const rawTxt = r => r.unit === LEVEL ? (Number(r.qty) > 0 ? "Enough" : "Low") : A.qtyTxt({ qty: Number(r.qty), unit: r.unit });
 function haveTxt(x){
@@ -172,14 +176,14 @@ function detail(x, nMonths){
       <label><span>Have at home</span><span class="bg-in"><input type="number" inputmode="decimal" min="0" max="100000" step="any" value="${x.haveRaw ? esc(fmt(Number(x.haveRaw.qty))) : ""}" aria-label="Amount of ${esc(x.name)} at home"><i>${esc(x.unit)}</i></span></label>
       <button class="pill outline sm" type="submit">Save</button>
     </form><p class="bg-note">${esc(x.name)} is only in the Beta for now, so its count is kept here, not in the main list.</p>`
-      : `<p class="bg-note">Have is the newest count: from Count at home (kept in the Beta) or from the main list (you or Maguie), whichever is more recent.</p>`}
+      : `<p class="bg-note">Have is the newest count: from Count at home (kept in the Beta) or from the main list, whichever is more recent. It shows who counted it.</p>`}
     ${x.level ? `<p class="bg-note">You check this one by eye in Count at home. Low means buy ${x.once ? `what you usually buy at once: <b>${esc(qty(x.once, x.unit))}</b>` : "it (no amount on your receipts yet; set a usual amount above)"}.</p>` : ""}
   </div>`;
 }
 function row(x, nMonths){
   const open = openRow === x.id, t = ticks.has(x.id);
   const sub = x.lvl === "low" ? `${haveTxt(x)}${x.once ? ` · usually ${qty(x.once, x.unit)} at a time` : ""}`
-    : x.regular ? `Usual ${qty(x.usual, x.unit)}${x.set ? " (set by you)" : ""} · ${haveTxt(x) ? `Have ${haveTxt(x)}` : "Not counted yet"}`
+    : x.regular ? `Usual ${qty(x.usual, x.unit)}${x.set ? ` (set by ${setBy(x.id)})` : ""} · ${haveTxt(x) ? `Have ${haveTxt(x)}` : "Not counted yet"}`
     : x.buys.length ? `Bought once · ${niceDate(x.buys[0].r.bought_on)} · ${qty(x.buys[0].qty, x.buys[0].unit)}` : "Not on your receipts yet";
   return `<li class="shop-item bg-item${t ? " ticked" : ""}${open ? " open" : ""}" data-id="${esc(x.id)}">
     <div class="bg-line">${x.regular ? `<button type="button" class="tick" role="checkbox" aria-checked="${t}" aria-label="${esc(x.name)} in the cart">${tickSvg}</button>` : `<span class="bg-pad"></span>`}
@@ -246,7 +250,7 @@ async function saveCount(){
     .concat(Object.entries(lvlDraft).filter(([id]) => items[id]).map(([id, l]) => [items[id], l === "ok" ? 1 : 0, LEVEL]));
   const by = A.myProfile() ? A.me.id : null, now = new Date().toISOString();
   busy = true; countFoot(); fb.tap();
-  // Saved only in the Beta (your choice, 3 Nov 2026): the main list and Maguie's view are not touched.
+  // Saved only in the Beta (Abdallah's choice, 3 Nov 2026): the main list is not touched. Shared by everyone who uses the guide.
   const r = await A.sb.from("purchases_beta_stock").upsert(vals.map(([it, q, u]) => ({ item_key: it.id, qty: Math.round(q * 100) / 100, unit: u || it.unit, counted_by: by, counted_at: now })), { onConflict: "item_key" });
   busy = false;
   if (r.error){ countFoot(); fb.error(); toast(r.error.code === "23503" ? "The Beta needs a small database update first. Nothing was saved." : "Couldn't save the counts. Check your connection."); return; }
@@ -362,6 +366,9 @@ $("#bgBack").onclick = () => { if (counting){ leaveCount(); return; } fb.tap(); 
 $("#bgClear").onclick = () => { fb.tap(); ticks.clear(); saveTicks(); keepScroll(render); };
 $("#bgDone").onclick = () => { fb.tap(); dlg.close(); };
 document.addEventListener("purchases:data", () => { if (dlg.open && !counting) keepScroll(render); });   // never redraw the form while typing   // a new count changes "Have"
+// Two people can use the guide at once: pick up each other's counts while it's open (every 20 s, and on coming back to the app).
+setInterval(() => { if (dlg.open && !counting && !busy && document.visibilityState === "visible") refresh(); }, 20000);
+document.addEventListener("visibilitychange", () => { if (dlg.open && !counting && document.visibilityState === "visible") refresh(); });
 document.addEventListener("purchases:beta-open", () => {
   if (!allowed()) return;
   ticks = getTicks(); tab = "guide"; receiptView = null; openRow = null; counting = false; draft = {}; lvlDraft = {}; modeDraft = {};
