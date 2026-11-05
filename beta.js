@@ -135,10 +135,36 @@ function model(){
   return { rows, months, nMonths };
 }
 
-/* ---------- ticks (this device only, start fresh each month) ---------- */
-function getTicks(){ try { const t = JSON.parse(localStorage.getItem(TICKS) || "null"); if (t && t.month === monthOf(A.dayKey())) return new Set(t.ids); } catch(e){} return new Set(); }
-let ticks = getTicks();
-function saveTicks(){ try { localStorage.setItem(TICKS, JSON.stringify({ month: monthOf(A.dayKey()), ids: [...ticks] })); } catch(e){} }
+/* ---------- "in the cart" ticks: shared live between phones (purchases_beta_ticks), start fresh each month.
+   Until that table exists, or if it can't be reached, they stay on this phone as before. ---------- */
+let shared = null, tickBy = {};   // shared: null = not checked yet, true = table works, false = this phone only
+const thisMonth = () => monthOf(A.dayKey());
+function localTicks(){ try { const t = JSON.parse(localStorage.getItem(TICKS) || "null"); if (t && t.month === thisMonth()) return new Set(t.ids); } catch(e){} return new Set(); }
+let ticks = localTicks();
+function saveTicks(){ try { localStorage.setItem(TICKS, JSON.stringify({ month: thisMonth(), ids: [...ticks] })); } catch(e){} }
+async function refreshTicks(){
+  if (!A.sb) return;
+  const r = await A.sb.from("purchases_beta_ticks").select("item_key,month,ticked_by");
+  if (r.error){ if (shared === null) shared = false; return; }
+  shared = true; const m = thisMonth(), rows = r.data.filter(x => x.month === m);
+  ticks = new Set(rows.map(x => x.item_key)); tickBy = Object.fromEntries(rows.map(x => [x.item_key, x.ticked_by]));
+  if (dlg.open && !counting && tab === "guide" && !typing()) keepScroll(render);
+}
+async function setTick(id, on){
+  on ? ticks.add(id) : ticks.delete(id); if (on) tickBy[id] = A.myProfile() ? A.me.id : null;
+  if (!shared){ saveTicks(); return; }
+  const q = A.sb.from("purchases_beta_ticks");
+  const r = on ? await q.upsert({ item_key: id, month: thisMonth(), ticked_by: tickBy[id], ticked_at: new Date().toISOString() }, { onConflict: "item_key" })
+    : await q.delete().eq("item_key", id);
+  if (r.error){ fb.error(); toast("Couldn't sync that tick. Check your connection."); refreshTicks(); }
+}
+async function clearTicks(){
+  ticks.clear(); tickBy = {};
+  if (!shared){ saveTicks(); return; }
+  const r = await A.sb.from("purchases_beta_ticks").delete().neq("item_key", "");   // every row, older months too
+  if (r.error){ fb.error(); toast("Couldn't clear the ticks. Check your connection."); refreshTicks(); }
+}
+const tickedBy = id => { const by = tickBy[id]; return !by || (A.myProfile() && by === A.me.id) ? "" : ` · ${A.whoName(by)} ticked it`; };
 
 /* ---------- render ---------- */
 const tickSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>`;
@@ -187,7 +213,7 @@ function row(x, nMonths){
     : x.buys.length ? `Bought once · ${niceDate(x.buys[0].r.bought_on)} · ${qty(x.buys[0].qty, x.buys[0].unit)}` : "Not on your receipts yet";
   return `<li class="shop-item bg-item${t ? " ticked" : ""}${open ? " open" : ""}" data-id="${esc(x.id)}">
     <div class="bg-line">${x.regular ? `<button type="button" class="tick" role="checkbox" aria-checked="${t}" aria-label="${esc(x.name)} in the cart">${tickSvg}</button>` : `<span class="bg-pad"></span>`}
-      <button type="button" class="bg-open" aria-expanded="${open}"><span class="si-t"><span class="si-name" dir="auto">${esc(x.name)}${x.beta ? ` <em class="tag">New</em>` : ""}</span><span class="si-sub">${esc(sub)}</span></span>${x.regular ? buyCell(x) : ""}${chev}</button></div>
+      <button type="button" class="bg-open" aria-expanded="${open}"><span class="si-t"><span class="si-name" dir="auto">${esc(x.name)}${x.beta ? ` <em class="tag">New</em>` : ""}</span><span class="si-sub">${esc(sub + (t ? tickedBy(x.id) : ""))}</span></span>${x.regular ? buyCell(x) : ""}${chev}</button></div>
     ${open ? detail(x, nMonths) : ""}</li>`;
 }
 function groups(rows){
@@ -331,7 +357,7 @@ dlg.addEventListener("submit", e => { const f = e.target.closest(".bg-edit"); if
 $("#bgBody").addEventListener("click", e => {
   const tk = e.target.closest(".tick");
   if (tk){ const li = tk.closest(".bg-item"), id = li.dataset.id, on = !ticks.has(id);
-    on ? ticks.add(id) : ticks.delete(id); saveTicks(); on ? fb.success() : fb.tap(); keepScroll(render); return; }
+    setTick(id, on); on ? fb.success() : fb.tap(); keepScroll(render); return; }
   const op = e.target.closest(".bg-open");
   if (op){ const id = op.closest(".bg-item").dataset.id; fb.tap(); openRow = openRow === id ? null : id; keepScroll(render); return; }
   const av = e.target.closest(".bg-avg"); if (av){ fb.tap(); useAverage(av.dataset.id); return; }
@@ -363,15 +389,18 @@ $("#bgCountCancel").onclick = leaveCount;
 $("#bgCountSave").onclick = saveCount;
 dlg.querySelector(".bg-seg").addEventListener("click", e => { const b = e.target.closest("[data-tab]"); if (!b || b.dataset.tab === tab) return; fb.tap(); tab = b.dataset.tab; receiptView = null; render(); $("#bgBody").scrollTop = 0; });
 $("#bgBack").onclick = () => { if (counting){ leaveCount(); return; } fb.tap(); receiptView = null; render(); $("#bgBody").scrollTop = 0; };
-$("#bgClear").onclick = () => { fb.tap(); ticks.clear(); saveTicks(); keepScroll(render); };
+$("#bgClear").onclick = () => { if (!confirm(shared ? "Clear the ticks on both phones?" : "Clear the ticks?")) return; fb.tap(); clearTicks(); keepScroll(render); };
 $("#bgDone").onclick = () => { fb.tap(); dlg.close(); };
 document.addEventListener("purchases:data", () => { if (dlg.open && !counting) keepScroll(render); });   // never redraw the form while typing   // a new count changes "Have"
 // Two people can use the guide at once: pick up each other's counts while it's open (every 20 s, and on coming back to the app).
-setInterval(() => { if (dlg.open && !counting && !busy && document.visibilityState === "visible") refresh(); }, 20000);
-document.addEventListener("visibilitychange", () => { if (dlg.open && !counting && document.visibilityState === "visible") refresh(); });
+setInterval(() => { if (dlg.open && !counting && !busy && document.visibilityState === "visible"){ refresh(); refreshTicks(); } }, 20000);
+document.addEventListener("visibilitychange", () => { if (dlg.open && !counting && document.visibilityState === "visible"){ refresh(); refreshTicks(); } });
+// ticks arrive live from the other phone (own channel, so a missing table can't break anything else)
+let tickT = null;
+if (A.sb) A.sb.channel("purchases-beta-ticks").on("postgres_changes", { event: "*", schema: "public", table: "purchases_beta_ticks" }, () => { clearTimeout(tickT); tickT = setTimeout(refreshTicks, 200); }).subscribe();
 document.addEventListener("purchases:beta-open", () => {
   if (!allowed()) return;
-  ticks = getTicks(); tab = "guide"; receiptView = null; openRow = null; counting = false; draft = {}; lvlDraft = {}; modeDraft = {};
-  dlg.showModal(); render(); $("#bgBody").scrollTop = 0; refresh();
+  if (!shared) ticks = localTicks(); tab = "guide"; receiptView = null; openRow = null; counting = false; draft = {}; lvlDraft = {}; modeDraft = {};
+  dlg.showModal(); render(); $("#bgBody").scrollTop = 0; refresh(); refreshTicks();
 });
 })();
