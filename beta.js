@@ -1,6 +1,7 @@
 /* Buying guide (Beta): usual monthly amount from supermarket receipts, compared with what's at home.
    Usual = everything bought of an item on the receipts / number of months the receipts cover (or a hand-set amount).
-   Have  = the newest count: Count at home (kept in the Beta) or the main list (whoever saved it), whichever is more recent.
+   Have  = the newest count: Count at home (kept in the Beta) or the main list (whoever saved it), whichever is more recent,
+           plus everything a receipt shows was bought after that count (count at home, go shopping, add the receipt).
    Buy   = Usual - Have, never below 0. Items you can't count (spices, dish soap…) are marked Low or Enough instead:
            Low = buy what you usually buy at once, Enough = nothing to buy.
    Shown on Abdallah's and Maguie's profiles (they share the same counts and usual amounts; each count shows who made it),
@@ -73,7 +74,7 @@ async function refresh(){
   if (ok){
     receipts = r.data; lines = l.data; betaItems = b.data;
     usualSet = Object.fromEntries(u.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit, by: x.updated_by || null }]));
-    betaStock = Object.fromEntries(s.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit, by: x.counted_by || null, day: A.dayKey(new Date(x.counted_at)) }]));
+    betaStock = Object.fromEntries(s.data.map(x => [x.item_key, { qty: Number(x.qty), unit: x.unit, by: x.counted_by || null, day: A.dayKey(new Date(x.counted_at)), at: x.counted_at, exact: true }]));
     if (receiptView) receiptView = receipts.find(x => x.id === receiptView.id) || null;
   }
   if (dlg.open && !counting && !typing()) keepScroll(render);
@@ -85,6 +86,15 @@ const typing = () => { const a = document.activeElement; return !!a && dlg.conta
 const conv = (q, from, to) => from === to ? q : from === "kg" && to === "g" || from === "L" && to === "ml" ? q * 1000
   : from === "g" && to === "kg" || from === "ml" && to === "L" ? q / 1000 : null;
 const monthOf = d => String(d).slice(0, 7);
+/* Counts and receipts compared as Cairo clock time, "YYYY-MM-DD HH:MM" (receipts print the shop's local time). */
+const wall = iso => { try {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(new Date(iso)).map(x => [x.type, x.value]));
+  return p.year && p.hour ? `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}` : null; } catch(e){ return null; } };
+const receiptAt = r => `${r.bought_on} ${r.bought_time ? String(r.bought_time).slice(0, 5) : "23:59"}`;   // no time printed: end of that day
+// When a count was made. Count at home keeps the exact moment. A main-list count belongs to its day: its save time is used
+// only when it was saved that same day, otherwise it counts as the end of that day.
+const countAt = h => { const w = h.at ? wall(h.at) : null; return w && (h.exact || w.slice(0, 10) === h.day) ? w : `${h.day} 23:59`; };
 const showQty = (q, u) => u === "kg" || u === "L" ? fmt(Math.round(q * 100) / 100) : u === "g" || u === "ml" ? fmt(Math.round(q / 10) * 10) : fmt(Math.round(q * 10) / 10);
 const qty = (q, u) => q == null ? "–" : `${showQty(q, u)} ${u}`;
 function roundBuy(q, u){   // round up to something you can pick off a shelf
@@ -117,20 +127,24 @@ function model(){
     const avg = nMonths ? sum / nMonths : 0, monthsBought = new Set(buys.map(b => monthOf(b.r.bought_on))).size;
     const set = usualSet[it.id], usual = set ? conv(set.qty, set.unit, it.unit) : avg;
     const perBuy = monthsBought ? sum / monthsBought : 0;   // amount in a month you bought it (all receipts that month together)
-    let have = null, haveDay = null, haveRaw = null, lvl = null;
-    // Have = the newest count: "Count at home" (kept in the Beta) or the main list (whoever saved it), whichever is more recent
+    let have = null, haveDay = null, haveRaw = null, lvl = null, since = [], added = 0;
+    // Have = the newest count: "Count at home" (kept in the Beta) or the main list (whoever saved it), whichever is more recent…
     const bs = betaStock[it.id], ml = !it.beta && latest[it.id] && latest[it.id][0];
     const h = bs && (!ml || bs.day >= ml.day) ? bs : ml || null;
     // checked by eye unless your last Count at home for it was a number
     const level = bs ? bs.unit === LEVEL : it.cat === LEVEL_CAT || LEVEL_IDS.has(it.id);
     if (h){ haveRaw = h; haveDay = h.day;
-      if (h.unit === LEVEL) lvl = Number(h.qty) > 0 ? "ok" : "low"; else have = conv(Number(h.qty), h.unit, it.unit); }
+      // …plus what the receipts show you bought after that count (counted 4 yogurts, then bought 12 = 16 at home)
+      const at = countAt(h); since = buys.filter(b => receiptAt(b.r) > at);
+      let odd = false; since.forEach(b => { const q = conv(b.qty, b.unit, it.unit); if (q == null) odd = true; else added += q; });
+      if (h.unit === LEVEL) lvl = since.length || Number(h.qty) > 0 ? "ok" : "low";   // Low, then bought it: Enough
+      else { const c = conv(Number(h.qty), h.unit, it.unit); have = c == null || odd ? null : c + added; } }
     const regular = !!set || monthsBought >= 2 || lvl === "low";
     // Low: buy what you usually buy at once (your set amount if you set one); at least one pack, can…
     const once = set ? usual : perBuy || null;
     const buy = lvl === "ok" ? 0 : lvl === "low" ? (once ? roundLow(once, it.unit) : null)
       : usual == null ? null : have == null ? (h ? null : roundBuy(usual, it.unit)) : roundBuy(usual - have, it.unit);
-    return { ...it, buys, avg, perBuy, once, monthsBought, set: !!set, usual, have, haveDay, haveRaw, lvl, level, regular, buy, bad };
+    return { ...it, buys, avg, perBuy, once, monthsBought, set: !!set, usual, have, haveDay, haveRaw, lvl, level, regular, buy, bad, since, added };
   });
   return { rows, months, nMonths };
 }
@@ -176,10 +190,12 @@ const when = x => `${who(x.haveRaw.by)}${A.shortDay(x.haveDay)}${stale(x.haveDay
 const rawTxt = r => r.unit === LEVEL ? (Number(r.qty) > 0 ? "Enough" : "Low") : A.qtyTxt({ qty: Number(r.qty), unit: r.unit });
 function haveTxt(x){
   if (!x.haveRaw) return null;
-  if (x.lvl) return `${x.lvl === "low" ? "Low" : "Enough"} · ${when(x)}`;
+  if (x.lvl) return x.since.length ? `Enough · bought after your ${rawTxt(x.haveRaw)} check (${when(x)})` : `${x.lvl === "low" ? "Low" : "Enough"} · ${when(x)}`;
   if (x.have == null) return `${rawTxt(x.haveRaw)} (other unit)`;
-  return `${qty(x.have, x.unit)} · ${when(x)}`;
+  return x.since.length ? `${qty(x.have, x.unit)} · counted ${rawTxt(x.haveRaw)} + bought ${qty(x.added, x.unit)} · ${when(x)}` : `${qty(x.have, x.unit)} · ${when(x)}`;
 }
+// for Count at home: what the receipts added since the last count
+const sinceTxt = x => !x.since.length ? "" : x.haveRaw && x.haveRaw.unit === LEVEL ? " · bought since" : ` · ${qty(x.added, x.unit)} bought since`;
 function buyCell(x){
   if (x.buy == null && x.lvl === "low") return `<b class="bg-buy">Needed</b>`;
   if (x.buy == null) return `<b class="bg-buy na" title="Counted in another unit">–</b>`;
@@ -203,6 +219,7 @@ function detail(x, nMonths){
       <button class="pill outline sm" type="submit">Save</button>
     </form><p class="bg-note">${esc(x.name)} is only in the Beta for now, so its count is kept here, not in the main list.</p>`
       : `<p class="bg-note">Have is the newest count: from Count at home (kept in the Beta) or from the main list, whichever is more recent. It shows who counted it.</p>`}
+    ${x.since.length ? `<p class="bg-note">Have adds what your receipts show you bought after that count: ${x.since.map(b => `<b>${esc(qty(b.qty, b.unit))}</b> on ${esc(niceDate(b.r.bought_on))} (${esc(b.r.store)})`).join(", ")}.</p>` : ""}
     ${x.level ? `<p class="bg-note">You check this one by eye in Count at home. Low means buy ${x.once ? `what you usually buy at once: <b>${esc(qty(x.once, x.unit))}</b>` : "it (no amount on your receipts yet; set a usual amount above)"}.</p>` : ""}
   </div>`;
 }
@@ -255,7 +272,7 @@ function renderCount(body){
   const gs = []; rows.forEach(x => { const g = gs[gs.length - 1]; if (g && g.cat === x.cat) g.rows.push(x); else gs.push({ cat: x.cat, rows: [x] }); });
   body.innerHTML = gs.map(g => { const c = cats[g.cat] || { name: "Other", hue: "#86868B" };
     return `<section class="shop-cat"><h3><i class="dot" style="--hue:${esc(c.hue)}"></i>${esc(c.name)}<span>${g.rows.length}</span></h3><ul>${g.rows.map(x => {
-      const last = x.haveRaw ? `Last: ${rawTxt(x.haveRaw)} · ${when(x)}` : "Not counted yet";
+      const last = x.haveRaw ? `Last: ${rawTxt(x.haveRaw)} · ${when(x)}${sinceTxt(x)}` : "Not counted yet";
       const head = `<span class="si-t"><span class="si-name" dir="auto">${esc(x.name)}${x.beta ? ` <em class="tag">New</em>` : ""}</span><span class="si-sub${stale(x.haveDay) ? " old" : ""}">${esc(last)}</span></span>`;
       if (isLevel(x)){ const l = lvlDraft[x.id];
         return `<li class="bg-count lvl${l ? " filled" : ""}" data-id="${esc(x.id)}">${head}

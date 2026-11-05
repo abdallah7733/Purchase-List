@@ -322,7 +322,7 @@ function itemRow(id, qtyText){
 }
 /* Each saved amount is what's at home that day, so an item's latest entry replaces the earlier ones (1 L, then 0.5 L = 0.5 L). */
 const itemHistory = (id, before) => sessions.filter(s => !before || s.day < before).flatMap(s => {   // newest first
-  const r = s.items.find(r => r.item_id === id); return r ? [{ day: s.day, qty: Number(r.qty), unit: r.unit, by: s.saved_by_profile || null }] : []; });
+  const r = s.items.find(r => r.item_id === id); return r ? [{ day: s.day, qty: Number(r.qty), unit: r.unit, by: s.saved_by_profile || null, at: s.updated_at || null }] : []; });
 const qtyTxt = r => `${fmt(r.qty)} ${r.unit}`;
 function itemHistHtml(id){
   const h = itemHistory(id, activeDay()), last = h[0];
