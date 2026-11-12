@@ -1,226 +1,114 @@
-# Purchases List: Handoff Report
+# Purchases List: Handoff Notes
 
-**Owner:** Abdallah (GitHub `abdallah7733`, email mabdallah.faith@gmail.com)
-**Date:** 27 September 2026
-**Status:** Steps 1 and 2 of 3 are finished or in progress. Supabase is live. The code is ready but **not yet on GitHub** (the upload is waiting on Abdallah). Vercel has not been started.
-
----
-
-## 1. What this project is
-
-It's a personal home stock tracker called **Purchases List**, with 49 household items in 11 categories. For each item you can open it, set the stock with a − / + counter, and pick a unit from a dropdown.
-
-The plan runs in three steps, in this order:
-
-1. **Supabase** for the database. **Done.**
-2. **GitHub** for the code repository. **Blocked:** Abdallah has to upload the files by hand (see §6).
-3. **Vercel** for hosting and a public URL, then testing on iPhone. **Not started.**
-
-### Abdallah's requirements
-
-- **Visual style:** dark colours and as much animation as possible.
-- **iPhone:** the app must work well on iPhone. He'll use it from Safari and "Add to Home Screen".
-- **How to work:** go step by step and **ask him for confirmation whenever you're unsure.** He wants to confirm decisions, so don't assume.
-- **His decisions so far:**
-  - **Database:** reuse the existing Supabase project; don't create a new one.
-  - **Access:** anyone with the link can view and edit, with no login. He was told the risk (anyone with the URL can change or zero the stock numbers) and chose this anyway.
-  - **AI:** leave AI features out of the web version for now. They'd need an Anthropic API key in a Vercel serverless function; offer that later.
-  - **Repository:** public GitHub repo. He named it **`Purchase-List`**, singular with a capital L. The code was prepared under the working name `purchases-list`.
-- **Communication:** executive, direct and concise. He prefers exact click-by-click instructions for tech steps: what to click, where it is, what he should see next, and what to do if it's missing.
+**Owner:** Abdallah (GitHub `abdallah7733`)
+**Last updated:** 10 October 2026
+**Status:** Live and in daily use on iPhone by more than one person. Code, database and hosting are all set up; this file describes how they fit together.
 
 ---
 
-## 2. Item list (single source of truth = Supabase)
+## 1. Working with the owner
 
-The numbers are display order.
+- **Confirm before changing anything he will notice** (layout, wording, behaviour) and before any database change. He prefers to decide.
+- **Communication:** executive, direct and concise. For anything he has to do himself, give exact click-by-click steps: what to click, where it is, what he should see next, and what to do if it's missing.
+- **Design:** Apple style (white/`#F5F5F7` backgrounds, `#1D1D1F` text, `#0071E3` blue, SF Pro / Inter, iOS wheel pickers, haptics and click sounds). The original dark theme is gone; don't bring it back.
+- **Decisions already made:**
+  - **No login.** Anyone with the link can view and edit. Only the admin passcode protects Full Reset and deleting an archived period.
+  - **One Supabase project**, reused (see §4). Don't create a new one.
+  - **No AI features in the web app** for now. If he asks later, it needs an Anthropic API key in a Vercel serverless function.
+- **Naming notes:** "Stew meat (for vegetables)" = لحمة خضار. "Black honey" = molasses. "Roumi cheese" is his preferred spelling. The item with id `always` is shown as "Pads".
 
-| # | Category | Items (default unit) |
+---
+
+## 2. What the app does
+
+- **Main list:** categories in supermarket-walk order (dry goods first, chilled and frozen last). Tap an item to open an iOS-style wheel for quantity and unit, or type an exact amount. Zero is a valid count.
+- **Confirm:** saves the day's picks as one row in `purchases_sessions` (one row per date). Confirming again the same day replaces it. Past days can be reopened with **Edit** in History.
+- **History** by date (collapsed by default), **In stock** (each item's latest count, so a later 0.5 L replaces an earlier 1 L), and a per-item history shown when you pick an item.
+- **Shopping list** (menu): every item counted since the last Full Reset with the amount left, in market-walk order (`purchases_categories.shop_sort`). Ticks are shared live between phones (`purchases_shop_ticks`). Exports to PDF; each A4 page is drawn from HTML so Arabic names render correctly.
+- **Profiles:** a name plus a preset avatar or a photo (cropped to 256×256 JPEG on the phone, stored in the `purchases-avatars` bucket). No password: the device keeps a random key, and only that device can edit its profile. The same name may be used on several devices.
+- **Add item:** guesses the category and unit from the name (English and Arabic), both editable. New items appear for everyone at once.
+- **Activity:** a log of saves (with exactly which items changed), added items and resets, written by database triggers.
+- **Push notifications:** every new activity row calls the `purchases-notify` Edge Function. It waits for 30 s of quiet (at most 3 min) and sends one message per person to every other subscribed device, e.g. "Mohammed added 3 items to your purchase list". Tapping it opens Activity. The app icon shows an unread badge.
+- **Full Reset** (passcode): saves everything logged since the previous reset as one snapshot in `purchases_archives`, then clears the days, the shopping ticks and any Seasonal items. **Archive** shows past periods; deleting one also needs the passcode. Five wrong passcodes lock both for 15 minutes.
+- **Also:** CSV export, a "Recently saved" pop-up once per app open, sound on/off.
+
+---
+
+## 3. Code
+
+Static site, no build step. `index.html`, `styles.css` and `app.js` hold the whole frontend; `config.js` has the public Supabase URL, publishable key and VAPID public key (all safe to be public). `sw.js` handles push and the badge only; there is no offline cache. Categories, items and saved days are cached in `localStorage` for an instant first paint, then refreshed from Supabase and kept live over Realtime.
+
+**Hosting:** Vercel project `purchase-list`, production URL https://purchase-list-theta.vercel.app. Every push to `main` deploys automatically. There are no environment variables.
+
+**Workflow:** changes go through a pull request into `main`. There is no automated test or CI yet (a smoke-test PR exists as a draft), so check changes in a browser at phone width before merging.
+
+---
+
+## 4. Database (Supabase)
+
+- **Project:** `abdallah7733's Project`, ref `cqqeffacjibhkahbfjzu`, Frankfurt, Postgres 17, free plan.
+- **API URL:** `https://cqqeffacjibhkahbfjzu.supabase.co`, publishable key in `config.js`.
+
+### Schema is in the repo
+
+`supabase/migrations/` holds every change in order. Replaying them on an empty Supabase project rebuilds the live schema exactly; this was checked on 10 October 2026 by replaying them into a scratch Postgres and comparing tables, columns, constraints, indexes, functions, triggers, policies, grants and Realtime tables against the live database. The only difference is `public.rls_auto_enable()`, which existed in the project before this app and isn't ours.
+
+`supabase/seed.sql` restores the current categories and items. It deliberately leaves out people's data and the secrets row (below).
+
+### Tables
+
+| Table | What it holds | App can |
 |---|---|---|
-| 1–6 | Grains & Bakery | White rice (kg), Basmati rice (kg), Vermicelli (pack), Flour (kg), Starch (pack), Toast (pack) |
-| 7–12 | Oils, Sauces & Condiments | Cooking oil (bottle), Olive oil (bottle), Vinegar (bottle), Tomato paste (can), Mustard (jar), Mayonnaise (jar) |
-| 13–19 | Spices | Salt, Black pepper, Paprika, Smoked paprika, Onion powder, Garlic powder, Other cooking spices (all pack) |
-| 20–22 | Sweeteners & Spreads | White honey, Black honey, Tahini (all jar) |
-| 23–26 | Beverages | Plain Turkish coffee (pack), Roasted Turkish coffee (pack), Nescafé (jar), Pepsi (can) |
-| 27–29 | Cleaning & Laundry | Dish soap, Clothes washing gel, Black clothes washing gel (all bottle) |
-| 30–34 | Paper & Bags | Toilet paper (roll), Table tissue (box), Kitchen tissue (roll), Refrigerator bags (roll), Rubbish bags (roll) |
-| 35 | Personal Care | Toothpaste (pcs) |
-| 36–40 | Meat & Poultry (Chilled) | Beef tenderloin (kg), Minced meat (kg), Stew meat (for vegetables) (kg), Chicken breast (kg), Whole chicken (pcs) |
-| 41–48 | Dairy, Eggs & Deli (Chilled) | Full cream milk (L), Skimmed milk (L), Yogurt (pcs), Cooking cream (pack), Mozzarella (kg), Roumi cheese (kg), Luncheon (g), Eggs (tray) |
-| 49 | Frozen (Keep cold) | Frozen vegetables (bag) |
+| `purchases_categories` | 11 categories plus Seasonal (id 12, `seasonal = true`, shown only while it has items): name, colour (`hue`), `sort`, `shop_sort` | read |
+| `purchases_items` | 61 items: slug id, name, category, default unit, `sort`, `added_by` | read (add through `purchases_add_item`) |
+| `purchases_sessions` | One row per date: `items` = `[{item_id, qty, unit}]`, who saved it | read, insert, update |
+| `purchases_activity` | Change log (`save`, `add_item`, `reset`) | read only |
+| `purchases_profiles` | Name + avatar per device | read (save through `purchases_profile_save`) |
+| `purchases_shop_ticks` | Items ticked off on the shopping list | read, insert, delete |
+| `purchases_archives` | One snapshot per Full Reset | read only |
+| `purchases_stock` | Legacy table from the first version; no longer used by the app | read, insert, update |
 
-**Allowed units:** kg, g, L, ml, pcs, pack, bottle, box, can, jar, bag, roll, carton, dozen, tray. The counter steps by 0.5 for kg and L and by 1 for every other unit.
+The `purchases_private` schema is not exposed through the API and anon has no access to it. It holds the admin passcode hash and lock counter (`admin`), the push keys and webhook secret (`push_config`), push subscriptions (`push_subs`), the last activity already notified per person (`push_sent`) and each profile's device-key hash (`profile_keys`).
 
-**Order logic:** it follows a walk through a supermarket. Dry goods come first; chilled and frozen items come last so they stay cold.
+**Functions the app calls** (all `security definer`): `purchases_profile_save`, `purchases_add_item`, `purchases_push_subscribe`, `purchases_push_unsubscribe`, `purchases_reset_history`, `purchases_delete_archive`.
 
-**Naming notes:**
-- "Stew meat (for vegetables)" = لحمة خضار.
-- "Black honey" = molasses.
-- "Roumi cheese" is his preferred spelling (he said "roomy").
+**Triggers:** saving a day logs the item-level changes to `purchases_activity` (`purchases_sessions_log`). Every new activity row calls the Edge Function through `pg_net` (`purchases_activity_notify`).
 
----
+**Allowed units:** kg, g, L, ml, pcs, pack, bottle, box, can, jar, bag, roll, carton, dozen, tray.
 
-## 3. What already exists
+### Changing the database
 
-### A. Excel draft (the original request)
+1. Add a new file to `supabase/migrations/` named `YYYYMMDDHHMMSS_short_name.sql`, written so it can safely run twice (`if not exists`, `create or replace`).
+2. Get Abdallah's go-ahead, then apply it. The Supabase connector's `apply_migration` has hung from cloud sessions, so the reliable route is for Abdallah (or Cowork on his Mac) to paste the file into the Supabase **SQL Editor** and run it. Changes applied that way don't appear in Supabase's migration history; the repo folder is the record.
+3. Merge the PR that adds the file.
 
-- **File:** `Purchases_List.xlsx`, a copy of which is in this folder.
-- **Contents:** title "Purchases List", columns No. | Items | Stock | Unit, grouped by category with shaded heading rows.
-- **Numbering:** static numbers, not formulas, so they display reliably in Apple Numbers.
-- **Empty:** the Stock and Unit columns haven't been filled in yet.
+To add an item without code, use **Add item** in the app.
 
-### B. Claude Artifact version (inside claude.ai)
+### Rebuilding from scratch
 
-- **Link:** https://claude.ai/artifact/SXj2CCo9WePByEXqCGrV8N (private to Abdallah).
-- **Features:** dark and animated, AI quick entry (Claude parses text like "5 kg rice, 2 bottles oil"), "Review my list" AI bullets, CSV export, and an iPhone-optimised layout (version 2).
-- **Storage:** it saves stock in the **artifact's own database**, not in Supabase. The artifact and the web app are **separate stores and do not sync.** The web app on Vercel is meant to be the main version going forward.
+Run the migrations in order on a new project, then `seed.sql`. Then, by hand:
 
-### C. Standalone web app (for GitHub and Vercel)
-
-The files are in **`~/Downloads/Purchase-List/`** on Abdallah's Mac, which is the folder this report is in.
-
-| File | Purpose |
-|---|---|
-| `index.html` | Page shell. It includes the iOS PWA meta tags (`apple-mobile-web-app-capable`, black-translucent status bar, `apple-touch-icon`, theme colour `#0D1014`, `viewport-fit=cover`) and loads supabase-js **2.117.2** UMD from jsDelivr. |
-| `styles.css` | The full dark, animated design: tokens, aurora background, accordion, counters, reduced-motion support and phone breakpoints. |
-| `app.js` | All logic (vanilla JS, no build step), described below. |
-| `config.js` | Supabase URL and **publishable** key. This key is safe to be public because Row Level Security protects the data. |
-| `manifest.webmanifest` | PWA manifest: name "Purchases List", short name "Purchases", standalone display. |
-| `icon-180.png`, `icon-192.png`, `icon-512.png` | App icons: dark background with a saffron checklist mark. |
-| `vercel.json` | Security headers, plus the manifest content type. There's no build config because the site is static. |
-| `README.md` | Short project description. |
-
-What `app.js` does:
-
-- **Loading:** reads categories, items and stock from Supabase and caches them in localStorage for an instant first paint.
-- **Saving:** writes each change as an upsert to `purchases_stock`, debounced by 600 ms per item.
-- **Live sync:** subscribes to Realtime changes on `purchases_stock` so multiple devices stay in sync.
-- **Other features:** search, open all / close all categories, and CSV export (a Blob download that opens in Numbers).
-
-**Design tokens:** background `#0D1014`, accent saffron `#E9A93B`, text `#ECE7DC`. Fonts are Bricolage Grotesque (display), Figtree (body) and JetBrains Mono (numbers). Each category has its own colour, stored in the database.
-
-**iPhone fixes already applied:**
-- All inputs are at least 16px, so iOS doesn't zoom in on focus.
-- Tap targets are at least 44px.
-- `touch-action: manipulation`, so fast taps on + / − don't zoom the page.
-- Hover effects only apply on devices with a real mouse.
-- The quantity box isn't auto-focused on touch devices, so the keyboard doesn't pop up by itself.
-- The search bar sticks to the top.
-- Icon-only toolbar buttons are used on narrow screens.
-- The background blur is lighter on phones.
-
-**Tests done:** loaded in headless Chromium with iPhone 13 emulation against the live Supabase. All 49 items loaded, a +/+ tap saved `1 kg` for White rice, and the status showed "Saved". The test row was then deleted.
-
-**Local git:** the cloud copy was committed as `92a709b` on branch `main`. That commit isn't reachable from a new session; the Downloads folder is the copy that counts.
+- **Change the admin passcode.** The first migration sets it to `1234`. Run in the SQL Editor: `update purchases_private.admin set passcode_hash = extensions.crypt('NEW-CODE', extensions.gen_salt('bf'));`
+- **Insert the push keys row** into `purchases_private.push_config` (VAPID public/private key, subject, hook secret). Never commit it. The public key must match `vapidPublicKey` in `config.js`.
+- **Deploy the Edge Function** from `supabase/functions/purchases-notify/` with JWT verification **off** (the trigger authenticates with the hook secret instead).
+- If the project ref changes, update the URL in `config.js`, in `notify_activity()` and in the avatar URL check on `purchases_profiles`.
 
 ---
 
-## 4. Supabase (step 1, done)
+## 5. Push notifications
 
-- **Organization:** `abdallah7733's Org` (id `rqcfcymqqfolixshuojo`), **free plan**.
-- **Project:** `abdallah7733's Project`, ref / id **`cqqeffacjibhkahbfjzu`**, region eu-central-1 (Frankfurt), Postgres 17.
-- **API URL:** `https://cqqeffacjibhkahbfjzu.supabase.co`
-- **Publishable key:** `sb_publishable_9FFaxUXZNTTZXD8ng8_UnQ_MyDPNkqK`. A legacy anon JWT also exists, but use the publishable key.
-- **Before this project:** the project was empty, with no tables.
-
-### Schema (migration `purchases_list_schema`)
-
-```sql
-purchases_categories (id smallint PK, name text unique, sub text, hue text, sort smallint)
-purchases_items      (id text PK -- slug e.g. 'white-rice', name text unique,
-                      category_id smallint FK -> purchases_categories, default_unit text, sort smallint)
-purchases_stock      (item_id text PK FK -> purchases_items ON DELETE CASCADE,
-                      qty numeric(10,2) CHECK 0..100000,
-                      unit text CHECK in (kg,g,L,ml,pcs,pack,bottle,box,can,jar,bag,roll,carton,dozen,tray),
-                      updated_at timestamptz, auto-updated by trigger purchases_stock_touch)
-```
-
-- **Row Level Security:** on for all three tables.
-  - `anon` and `authenticated` can **select** all three tables.
-  - They can **insert and update** `purchases_stock`, but can't delete stock rows.
-  - They can't change categories or items; only an admin can, through SQL or the dashboard.
-- **Realtime:** `purchases_stock` is added to the `supabase_realtime` publication.
-- **Seeded data:** 11 categories and 49 items. `purchases_stock` is empty (0 rows). Clearing an item in the app writes qty 0 rather than deleting the row.
-- **Verified with the publishable key:**
-  - Selecting items works.
-  - Upsert works.
-  - An invalid unit is rejected by the check constraint.
-  - Deleting stock or items returns 401.
-
-### Adding a new item later (no redeploy needed)
-
-The app renumbers items automatically from `sort`, so a new item just needs a slot. Example: add Lentils to Grains & Bakery after Toast (sort 6).
-
-```sql
-update public.purchases_items set sort = sort + 1 where sort > 6;
-insert into public.purchases_items (id, name, category_id, default_unit, sort)
-values ('lentils', 'Lentils', 1, 'kg', 7);
-```
-
-**Category ids:**
-
-| id | Category |
-|---|---|
-| 1 | Grains & Bakery |
-| 2 | Oils, Sauces & Condiments |
-| 3 | Spices |
-| 4 | Sweeteners & Spreads |
-| 5 | Beverages |
-| 6 | Cleaning & Laundry |
-| 7 | Paper & Bags |
-| 8 | Personal Care |
-| 9 | Meat & Poultry |
-| 10 | Dairy, Eggs & Deli |
-| 11 | Frozen |
-
-### Open Supabase notes
-
-- **Security advisor warning:** it flags a function `public.rls_auto_enable()` (SECURITY DEFINER, executable by anon). This existed **before** our work and isn't ours. Ask Abdallah before revoking it.
-- **Live sync untested:** the Realtime WebSocket couldn't be tested because the sandbox proxy returned 500 on the handshake. Test it on the live Vercel URL with two devices or tabs. If it fails, the app still works; changes just need a reload to appear on other devices.
+- The Edge Function in the repo matches the deployed version (v5).
+- Apple's push service rejects a `Topic` header (400 BadWebPushTopic), so the function builds the request with `web-push` and sends it with `fetch`, without that header. Failures are logged with the push service's reason.
+- On iPhone, notifications only work once the app is added to the Home Screen and the person turns on **Menu → Notifications**.
+- Dead subscriptions (404/410) are deleted automatically.
 
 ---
 
-## 5. Vercel (step 3, not started)
+## 6. Known issues and open work
 
-- The Vercel MCP connector is linked. It's a **personal account with no teams.**
-- **Plan:** import the GitHub repo `abdallah7733/Purchase-List` as a new project.
-  - Framework preset: **Other**.
-  - No build command, no output directory; the root is static.
-  - No environment variables are needed, because the config is in `config.js`.
-- **After deploying:**
-  1. Open the live URL at phone width and confirm the list loads and saves.
-  2. Test Realtime with two tabs.
-  3. Send Abdallah the iPhone steps: Safari → Share → Add to Home Screen → Add.
-- **Suggested project name:** `purchase-list`. Confirm the name and any custom domain with Abdallah.
-
----
-
-## 6. GitHub (step 2, blocked, waiting on Abdallah)
-
-- **Repo:** https://github.com/abdallah7733/Purchase-List, **public** and **currently empty**. Abdallah created it on github.com with no README, .gitignore or license.
-- **Why automatic pushing failed:** the previous Cowork session could only push to repositories linked when it started. `git push` returned 403 ("not in this session's authorized repository set"), and creating repos through the API was also blocked.
-- **Fallback in progress:** Abdallah was told to upload the files through the web.
-  1. Open the repo and click **"uploading an existing file"**.
-  2. Drag the **files** from `~/Downloads/Purchase-List/` onto the page, not the folder itself.
-  3. Commit to `main` with the message "Initial upload".
-- **Don't upload:** `HANDOFF.md` or `Purchases_List.xlsx`. These are for Cowork and Abdallah, not the website. They're harmless if uploaded, but keep the repo clean.
-- **If the new session has this repo linked,** it can push directly instead.
-
----
-
-## 7. Next actions for the new session (in order)
-
-1. **Confirm the upload:** ask Abdallah whether the GitHub upload is done. Check that the repo shows the 10 files at its root, with `index.html` at the top level.
-2. **Vercel import:** confirm with Abdallah, then guide him click by click (or use the Vercel tools if they can import):
-   1. vercel.com → **Add New… → Project**.
-   2. **Import** next to Purchase-List. If it's missing: **Adjust GitHub App Permissions** and give access to the repo.
-   3. Framework **Other** → **Deploy**.
-3. **Verify:** confirm the build succeeded, then open the URL at iPhone size.
-   - The list loads 49 items.
-   - A stock change saves.
-   - Realtime sync works across two tabs.
-4. **Report back:** give Abdallah the live URL and the iPhone Add to Home Screen steps.
-5. **Optional, only if he asks:**
-   - Fill in stock values together, then regenerate the Excel file from the Supabase data.
-   - Add AI quick entry to the web version (a Vercel serverless function with his Anthropic API key).
-   - Add email login if he changes his mind about open access.
-   - Revoke the pre-existing `rls_auto_enable` warning.
+- **Open pull requests:** the draft smoke test. Older draft PRs for these docs and the migrations are replaced by this update.
+- **Supabase security advisor:**
+  - It flags RLS as off on the `purchases_private` tables. Those tables aren't reachable from the API (the schema isn't exposed and anon has no usage on it), so this is low risk. Enabling RLS on them with no policies would add defence in depth without breaking anything, because only `security definer` functions and the Edge Function read them. Ask Abdallah first.
+  - `public.rls_auto_enable()` predates this app. Ask Abdallah before touching it.
+- **No automated tests.** A browser smoke test on each push would catch breakage before it reaches the phones.
+- **Open access by design:** anyone with the URL can change counts or add items. Full Reset, deleting archives and editing someone else's profile are protected.
